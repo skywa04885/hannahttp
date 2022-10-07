@@ -16,23 +16,34 @@
   along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-export class HTTPRequestURI {
+export class HTTPURI {
+  /**
+   * Creates a new HTTP uri.
+   * @param path the path of the uri.
+   * @param search the search of the uri.
+   * @param hash the hash of the uri.
+   */
   public constructor(
     public readonly path: string,
     public readonly search: { [key: string]: string },
     public readonly hash: string | null
   ) {}
 
-  public static parse(uriString: string): HTTPRequestURI {
+  /**
+   * Parses the given uri.
+   * @param uri the uri to parse.
+   * @returns the parsed uri.
+   */
+  public static parse(uri: string): HTTPURI {
     // This regular expression will parse the URI.
     const matcher: RegExp =
       /^(?<path>(?:\/[a-zA-Z0-9_\-\.]*)+)(?<hash>#[a-zA-Z0-9_\-\.]*)?(?<search>\?([a-zA-Z0-9_\-]+=[a-zA-Z0-9_\-]*)(&[a-zA-Z]+=[a-zA-Z0-9_\-]*)*)?$/;
 
     // Parses the uriString with the regular expression, if the match returns the uri is invalid.
-    const match: RegExpMatchArray | null = uriString.match(matcher);
+    const match: RegExpMatchArray | null = uri.match(matcher);
     if (match === null) {
       throw new Error(
-        `Invalid HTTP Request URI: Did mot match regular expression: '${uriString}'!`
+        `Invalid HTTP Request URI: Did mot match regular expression: '${uri}'!`
       );
     }
 
@@ -69,6 +80,6 @@ export class HTTPRequestURI {
     const hash: string | null = hashString ? hashString.substring(1) : null;
 
     // Returns the parsed request uri.
-    return new HTTPRequestURI(pathString, search, hash);
+    return new HTTPURI(pathString, search, hash);
   }
 }

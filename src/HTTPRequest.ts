@@ -20,7 +20,7 @@ import { ByteLengthQueuingStrategy } from "node:stream/web";
 import { EventEmitter } from "stream";
 import { HTTPHeaders } from "./HTTPHeaders";
 import { HTTPMethod, isValidHttpMethod } from "./HTTPMethod";
-import { HTTPRequestURI } from "./HTTPRequestURI";
+import { HTTPURI } from "./HTTPURI";
 import { HTTPVersion, isValidHttpVersion } from "./HTTPVersion";
 
 export enum HTTPRequestState {
@@ -96,7 +96,7 @@ export class HTTPRequest<T = any> extends EventEmitter {
   protected buffer: Buffer | null;
 
   public method: HTTPMethod | null;
-  public uri: HTTPRequestURI | null;
+  public uri: HTTPURI | null;
   public rawUri: string | null;
   public version: HTTPVersion | null;
 
@@ -224,7 +224,7 @@ export class HTTPRequest<T = any> extends EventEmitter {
     }
 
     // Parses the request URI.
-    const parsedRequestURI: HTTPRequestURI = HTTPRequestURI.parse(uriString);
+    const parsedRequestURI: HTTPURI = HTTPURI.parse(uriString);
 
     // Updates the instance variables.
     this.method = methodString as HTTPMethod;

@@ -37,4 +37,4 @@ httpSimpleRouter.get("/test/:store_id/:article_id", (match, req, res, next) => {
 
 const httpServer: HTTPServerPlain = new HTTPServerPlain(httpSimpleRouter);
 
-httpServer.httpServerSocket.listen(8080, "localhost", 10);
+httpServer.listen(8080, "localhost", 10);

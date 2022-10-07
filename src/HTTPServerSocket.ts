@@ -28,7 +28,11 @@ export enum HTTPServerSocketEvent {
 }
 
 export class HTTPServerSocket extends EventEmitter {
-  public constructor(public readonly server: net.Server) {
+  /**
+   * Constructs a new http server socket.
+   * @param _server the server to wrap.
+   */
+  public constructor(public readonly _server: net.Server) {
     super();
   }
 
@@ -52,7 +56,7 @@ export class HTTPServerSocket extends EventEmitter {
     this._registerListeners();
 
     // Starts listening.
-    this.server.listen(port, hostname, backlog);
+    this._server.listen(port, hostname, backlog);
 
     // Returns the current instance.
     return this;
@@ -74,12 +78,12 @@ export class HTTPServerSocket extends EventEmitter {
    * Registers all the listeners.
    */
   protected _registerListeners(): void {
-    this.server.on("close", () => this._onCloseEvent());
-    this.server.on("listening", () => this._onListeningEvent());
-    this.server.on("connection", (clientSocket: net.Socket) =>
+    this._server.on("close", () => this._onCloseEvent());
+    this._server.on("listening", () => this._onListeningEvent());
+    this._server.on("connection", (clientSocket: net.Socket) =>
       this._onConnectionEvent(clientSocket)
     );
-    this.server.on("error", (error: Error) => this._onError(error));
+    this._server.on("error", (error: Error) => this._onError(error));
   }
 
   /**

@@ -94,14 +94,14 @@ export const httpSimpleRouterMethodFromHttpMethod = (
 };
 
 export class HTTPSimpleRouter extends HTTPRouter {
-  protected elements: HTTPSimpleRouterElement[];
+  protected _elements: HTTPSimpleRouterElement[];
 
   /**
    * Constructs a new simple http router.
    */
   public constructor() {
     super();
-    this.elements = [];
+    this._elements = [];
   }
 
   /**
@@ -225,7 +225,7 @@ export class HTTPSimpleRouter extends HTTPRouter {
     const httpUriMatcher = HTTPPathMatcher.fromPath(matcher);
 
     // Inserts the element into the router.
-    this.elements.push([httpSimpleRouterMethod, httpUriMatcher, handler]);
+    this._elements.push([httpSimpleRouterMethod, httpUriMatcher, handler]);
 
     // Returns the current instance.
     return this;
@@ -257,7 +257,7 @@ export class HTTPSimpleRouter extends HTTPRouter {
     method: HTTPSimpleRouterMethod,
     path: string
   ): Generator<[HTTPPathMatch, HTTPRouterCallback]> {
-    for (const element of this.elements) {
+    for (const element of this._elements) {
       // If the method does not match, continue.
       if (!(element[0] === null || element[0] === method)) continue;
 
@@ -318,8 +318,8 @@ export class HTTPSimpleRouter extends HTTPRouter {
       if (iteratorResult.done) return;
 
       // Gets the match, and runs it.
-      const match: [HTTPPathMatch, HTTPRouterCallback] = iteratorResult.value;
-      match[1](match[0], httpRequest, httpResponse, next);
+      const [match, callback]: [HTTPPathMatch, HTTPRouterCallback] = iteratorResult.value;
+      callback(match, httpRequest, httpResponse, next);
     };
 
     // Runs the next function for the first time.

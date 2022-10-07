@@ -17,37 +17,59 @@
 */
 
 import { HTTPClientSocket } from "./HTTPClientSocket";
-import net from 'net';
+import net from "net";
 import { HTTPClientHandler } from "./HTTPClientHandler";
 import { HTTPRouter } from "./HTTPRouter";
 import { HTTPServerSocket, HTTPServerSocketEvent } from "./HTTPServerSocket";
 
 export class HTTPServer {
   public constructor(
-    public readonly httpServerSocket: HTTPServerSocket,
-    public readonly httpRouter: HTTPRouter,
-  ) {
-
-  }
+    protected readonly _serverSocket: HTTPServerSocket,
+    protected readonly _router: HTTPRouter
+  ) {}
 
   protected _onClientConnected(clientSocket: HTTPClientSocket): void {
-    HTTPClientHandler.fromHttpClientSocket(clientSocket, this.httpRouter);
+    HTTPClientHandler.fromHttpClientSocket(clientSocket, this._router);
   }
 }
 
 export class HTTPServerPlain extends HTTPServer {
-  public constructor(httpRouter: HTTPRouter) {
-    super(HTTPServerSocket.fromServer(net.createServer()), httpRouter);
+  /**
+   * Constructs a new plain text http server.
+   * @param _router the router to use.
+   */
+  public constructor(_router: HTTPRouter) {
+    // Calls the super constructor.
+    super(HTTPServerSocket.fromServer(net.createServer()), _router);
 
     // Registers the event listeners.
-    this.httpServerSocket.on(HTTPServerSocketEvent.ClientConnected, (httpClientSocket: HTTPClientSocket) => this._onClientConnected(httpClientSocket));
+    this._serverSocket.on(
+      HTTPServerSocketEvent.ClientConnected,
+      (httpClientSocket: HTTPClientSocket) =>
+        this._onClientConnected(httpClientSocket)
+    );
   }
 
+  /**
+   * Destroys the current server.
+   */
   public destroy() {
     // Removes the event listeners.
-    this.httpServerSocket.removeAllListeners();
+    this._serverSocket.removeAllListeners();
 
     // Destroys the socket.
-    this.httpServerSocket.destroy();
+    this._serverSocket.destroy();
+  }
+
+  /**
+   * Listens the http server.
+   * @param port the port.
+   * @param hostname the hostname.
+   * @param backlog the backlog.
+   * @returns the current instance.
+   */
+  public listen(port: number, hostname: string, backlog: number): this {
+    this._serverSocket.listen(port, hostname, backlog);
+    return this;
   }
 }
