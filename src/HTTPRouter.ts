@@ -1,11 +1,31 @@
+/*
+  HannaHTTP extremely fast and customizable HTTP server.
+  Copyright (C) Luke A.C.A. Rieff 2022
+
+  This program is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or
+  (at your option) any later version.
+
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
 import { HTTPMethod } from "./HTTPMethod";
 import { HTTPRequest } from "./HTTPRequest";
 import { HTTPResponse } from "./HTTPResponse";
-import { HTTPUriMatcher, HTTPUriMatcherResult } from "./HTTPUriMatcher";
+import { HTTPPathMatcher } from "./HTTPPathMatcher";
+import { HTTPPathMatch } from "./HTTPPathMatch";
 
 export type HTTPRouterNextFunction = () => void;
 
 export type HTTPRouterCallback<T = any> = (
+  match: HTTPPathMatch,
   request: HTTPRequest<T>,
   response: HTTPResponse,
   next: HTTPRouterNextFunction
@@ -26,7 +46,7 @@ export enum HTTPSimpleRouterMethod {
 export type HTTPSimpleRouterHandler = HTTPRouterCallback | HTTPSimpleRouter;
 export type HTTPSimpleRouterElement = [
   HTTPSimpleRouterMethod | null,
-  HTTPUriMatcher,
+  HTTPPathMatcher,
   HTTPSimpleRouterHandler
 ];
 
@@ -90,10 +110,7 @@ export class HTTPSimpleRouter extends HTTPRouter {
    * @param handler the handler for when matches.
    * @returns the current instance.
    */
-  public patch(
-    matcher: string,
-    handler: HTTPSimpleRouterHandler
-  ): this {
+  public patch(matcher: string, handler: HTTPSimpleRouterHandler): this {
     return this.register(HTTPMethod.PATCH, matcher, handler);
   }
 
@@ -103,10 +120,7 @@ export class HTTPSimpleRouter extends HTTPRouter {
    * @param handler the handler for when matches.
    * @returns the current instance.
    */
-  public trace(
-    matcher: string,
-    handler: HTTPSimpleRouterHandler
-  ): this {
+  public trace(matcher: string, handler: HTTPSimpleRouterHandler): this {
     return this.register(HTTPMethod.TRACE, matcher, handler);
   }
 
@@ -116,10 +130,7 @@ export class HTTPSimpleRouter extends HTTPRouter {
    * @param handler the handler for when matches.
    * @returns the current instance.
    */
-  public connect(
-    matcher: string,
-    handler: HTTPSimpleRouterHandler
-  ): this {
+  public connect(matcher: string, handler: HTTPSimpleRouterHandler): this {
     return this.register(HTTPMethod.CONNECT, matcher, handler);
   }
 
@@ -129,10 +140,7 @@ export class HTTPSimpleRouter extends HTTPRouter {
    * @param handler the handler for when matches.
    * @returns the current instance.
    */
-  public head(
-    matcher: string,
-    handler: HTTPSimpleRouterHandler
-  ): this {
+  public head(matcher: string, handler: HTTPSimpleRouterHandler): this {
     return this.register(HTTPMethod.HEAD, matcher, handler);
   }
 
@@ -142,10 +150,7 @@ export class HTTPSimpleRouter extends HTTPRouter {
    * @param handler the handler for when matches.
    * @returns the current instance.
    */
-  public put(
-    matcher: string,
-    handler: HTTPSimpleRouterHandler
-  ): this {
+  public put(matcher: string, handler: HTTPSimpleRouterHandler): this {
     return this.register(HTTPMethod.PUT, matcher, handler);
   }
 
@@ -155,10 +160,7 @@ export class HTTPSimpleRouter extends HTTPRouter {
    * @param handler the handler for when matches.
    * @returns the current instance.
    */
-  public delete(
-    matcher: string,
-    handler: HTTPSimpleRouterHandler
-  ): this {
+  public delete(matcher: string, handler: HTTPSimpleRouterHandler): this {
     return this.register(HTTPMethod.DELETE, matcher, handler);
   }
 
@@ -168,10 +170,7 @@ export class HTTPSimpleRouter extends HTTPRouter {
    * @param handler the handler for when matches.
    * @returns the current instance.
    */
-  public get(
-    matcher: string,
-    handler: HTTPSimpleRouterHandler
-  ): this {
+  public get(matcher: string, handler: HTTPSimpleRouterHandler): this {
     return this.register(HTTPMethod.GET, matcher, handler);
   }
 
@@ -181,10 +180,7 @@ export class HTTPSimpleRouter extends HTTPRouter {
    * @param handler the handler for when matches.
    * @returns the current instance.
    */
-  public post(
-    matcher: string,
-    handler: HTTPSimpleRouterHandler
-  ): this {
+  public post(matcher: string, handler: HTTPSimpleRouterHandler): this {
     return this.register(HTTPMethod.POST, matcher, handler);
   }
 
@@ -194,10 +190,7 @@ export class HTTPSimpleRouter extends HTTPRouter {
    * @param handler the handler to run on all methods which paths match.
    * @returns the current instance.
    */
-  public any(
-    matcher: string,
-    handler: HTTPSimpleRouterHandler
-  ): this {
+  public any(matcher: string, handler: HTTPSimpleRouterHandler): this {
     return this.register(null, matcher, handler);
   }
 
@@ -207,7 +200,7 @@ export class HTTPSimpleRouter extends HTTPRouter {
    * @returns the current instance.
    */
   public use(handler: HTTPSimpleRouterHandler): this {
-    return this.register(null, '*', handler);
+    return this.register(null, "*", handler);
   }
 
   /**
@@ -229,14 +222,10 @@ export class HTTPSimpleRouter extends HTTPRouter {
         : null;
 
     // Constructs the http uri matcher.
-    const httpUriMatcher = HTTPUriMatcher.fromPath(matcher);
+    const httpUriMatcher = HTTPPathMatcher.fromPath(matcher);
 
     // Inserts the element into the router.
-    this.elements.push([
-      httpSimpleRouterMethod,
-      httpUriMatcher,
-      handler,
-    ]);
+    this.elements.push([httpSimpleRouterMethod, httpUriMatcher, handler]);
 
     // Returns the current instance.
     return this;
@@ -260,22 +249,6 @@ export class HTTPSimpleRouter extends HTTPRouter {
   }
 
   /**
-   * Constructs a regular expression from a path.
-   * @param path the path to construct a regular expression from.
-   * @returns the constructed regular expression.
-   */
-  protected regularExpressionFromPath(path: string): RegExp {
-    const cleanedPathString: string = this.cleanPath(path);
-    const regularExpressionString = `^${cleanedPathString
-      .replace("*", ".*")
-      .replace("/", "\\/")
-      .replace(/:[a-zA-Z0-9_\-]+/, (matched: string, index: number, original): string => {
-        return `(?<${matched.substring(1)}>[a-zA-Z0-9_\\-]+)`;
-      })}$`;
-    return new RegExp(regularExpressionString);
-  }
-
-  /**
    * Gets all the callbacks for the given method and path.
    * @param method the method to get all the callbacks for.
    * @param path the path to match all the matchers against.
@@ -283,16 +256,17 @@ export class HTTPSimpleRouter extends HTTPRouter {
   public *callbacks(
     method: HTTPSimpleRouterMethod,
     path: string
-  ): Generator<HTTPRouterCallback> {
+  ): Generator<[HTTPPathMatch, HTTPRouterCallback]> {
     for (const element of this.elements) {
       // If the method does not match, continue.
       if (!(element[0] === null || element[0] === method)) continue;
 
       // Gets the matcher.
-      const httpUriMatcher: HTTPUriMatcher = element[1];
+      const httpUriMatcher: HTTPPathMatcher = element[1];
 
       // Runs the matcher on the current path, and if nothing matches, simply continue.
-      const httpUriMatcherResult: HTTPUriMatcherResult | null = httpUriMatcher.match(path);
+      const httpUriMatcherResult: HTTPPathMatch | null =
+        httpUriMatcher.match(path);
       if (httpUriMatcherResult === null) continue;
 
       // Gets the handler.
@@ -301,17 +275,21 @@ export class HTTPSimpleRouter extends HTTPRouter {
       // Checks the type of handler, and if it is another router, yield all it's matches first.
       if (httpSimpleRouterHandler instanceof HTTPSimpleRouter) {
         // Makes sure if there is any remainder at all.
-        const remainingPath: string = httpUriMatcherResult.remainder ?? '';
+        const remainingPath: string = httpUriMatcherResult.remainder ?? "";
 
-        // Yields all it's handles.
-        for (const callback of httpSimpleRouterHandler.callbacks(method, remainingPath)) yield callback;
+        // Yields all the matches.
+        for (const match of httpSimpleRouterHandler.callbacks(
+          method,
+          remainingPath
+        ))
+          yield match;
 
         // Don't yield itself.
         continue;
       }
 
       // Yield the handler.
-      yield httpSimpleRouterHandler;
+      yield [httpUriMatcherResult, httpSimpleRouterHandler];
     }
   }
 
@@ -327,7 +305,7 @@ export class HTTPSimpleRouter extends HTTPRouter {
     const path: string = this.cleanPath(httpRequest.uri!.path);
 
     // Creates the generator for the callbacks.
-    const callbacksGenerator: Generator<HTTPRouterCallback> = this.callbacks(
+    const callbacksGenerator: Generator<[HTTPPathMatch, HTTPRouterCallback]> = this.callbacks(
       httpSimpleRouterMethod,
       path
     );
@@ -335,13 +313,13 @@ export class HTTPSimpleRouter extends HTTPRouter {
     // Creates the next function.
     const next = (): any => {
       // Gets the next callback, and if the generator is done return.
-      const iteratorResult: IteratorResult<HTTPRouterCallback> =
+      const iteratorResult: IteratorResult<[HTTPPathMatch, HTTPRouterCallback]> =
         callbacksGenerator.next();
       if (iteratorResult.done) return;
 
-      // Gets the callback, and runs it.
-      const callback: HTTPRouterCallback = iteratorResult.value;
-      callback(httpRequest, httpResponse, next);
+      // Gets the match, and runs it.
+      const match: [HTTPPathMatch, HTTPRouterCallback] = iteratorResult.value;
+      match[1](match[0], httpRequest, httpResponse, next);
     };
 
     // Runs the next function for the first time.

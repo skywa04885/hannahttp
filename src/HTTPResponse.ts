@@ -1,6 +1,26 @@
+/*
+  HannaHTTP extremely fast and customizable HTTP server.
+  Copyright (C) Luke A.C.A. Rieff 2022
+
+  This program is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or
+  (at your option) any later version.
+
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
 import fs, { read, ReadStream } from "fs";
-import { HTTPContentType, HTTPHeaderType } from "./HTTPHeaders";
-import { HTTPClientSocket } from "./HTTPSocket";
+import path from "path";
+import { HTTPContentType } from "./HTTPContentType";
+import { HTTPHeaderType } from "./HTTPHeaderType";
+import { HTTPClientSocket } from "./HTTPClientSocket";
 import { HTTPVersion } from "./HTTPVersion";
 
 export enum HTTPResponseState {
@@ -73,7 +93,7 @@ export class HTTPResponse {
     const responseLineBuffer: Buffer = Buffer.from(responseLineString, "utf-8");
 
     // Writes the data to the http socket.
-    this.httpClientSocket.write(responseLineBuffer);
+    this.httpClientSocket.writeBuffer(responseLineBuffer);
 
     // Updates the state (since we've written the response line).
     this._state = HTTPResponseState.WritingResponseHeaders;
@@ -108,7 +128,7 @@ export class HTTPResponse {
     const headerStringBuffer: Buffer = Buffer.from(headerString, "utf-8");
 
     // Writes the header to the socket.
-    this.httpClientSocket.write(headerStringBuffer);
+    this.httpClientSocket.writeBuffer(headerStringBuffer);
 
     // Returns the instance.
     return this;
@@ -125,7 +145,7 @@ export class HTTPResponse {
       throw new Error(`Cannot write body chunk in state: ${this._state}`);
 
     // Writes the chunk.
-    this.httpClientSocket.write(chunk);
+    this.httpClientSocket.writeBuffer(chunk);
 
     // Returns the instance.
     return this;
@@ -158,7 +178,7 @@ export class HTTPResponse {
 
     // Writes the newline to indicate the end of the headers.
     const newlineStringBuffer: Buffer = Buffer.from("\r\n", "utf-8");
-    this.httpClientSocket.write(newlineStringBuffer);
+    this.httpClientSocket.writeBuffer(newlineStringBuffer);
 
     // Updates the state.
     this._state = HTTPResponseState.WritingResponseBody;
@@ -219,30 +239,57 @@ export class HTTPResponse {
     return this;
   }
 
-  public file(path: string, status: number = 200): this {
-    fs.stat(path, (err: NodeJS.ErrnoException | null, stats: fs.Stats): any => {
-      // If there is an error, send it.
-      if (err !== null) return this.text(err.message, 500);
+  /**
+   * Gets the content type from the given file extension.
+   * @param extension the extension to get the content type for.
+   * @returns the content type.
+   */
+  protected static _httpContentTypeFromFileExtension(
+    extension: string
+  ): HTTPContentType {
+    switch (extension) {
+      case ".html":
+        return HTTPContentType.TextHTML;
+      case ".txt":
+        return HTTPContentType.TextPlain;
+      default:
+        return HTTPContentType.OctetStream;
+    }
+  }
 
-      // Sends the response line with the headers.
-      this.status(status)
-        .defaultHeaders()
-        .header(HTTPHeaderType.ContentType, HTTPContentType.TextHTML)
-        .header(HTTPHeaderType.ContentLength, stats.size.toString())
-        .finalHeader();
+  /**
+   * Writes the given file as the HTTP response.
+   * @param filePath the path of the file to write to the client.
+   * @param status the status of the response.
+   * @returns the current instance.
+   */
+  public file(filePath: string, status: number = 200): this {
+    // Gets the file statistics, so we can send the content length before writing the file.
+    fs.stat(
+      filePath,
+      (err: NodeJS.ErrnoException | null, stats: fs.Stats): any => {
+        // If there is an error, send it.
+        if (err !== null) return this.text(err.message, 500);
 
-      const readStream: ReadStream = fs.createReadStream(path);
+        // Gets file extension and then the content type.
+        const fileExtension: string = path.extname(filePath);
+        const httpContentType: HTTPContentType =
+          HTTPResponse._httpContentTypeFromFileExtension(fileExtension);
 
-      readStream.on('error', (err: Error) => {
-        this.text(err.message, 500);
-      })
+        // Writes the response to the client.
+        this.status(status)
+          .defaultHeaders()
+          .header(HTTPHeaderType.ContentType, httpContentType)
+          .header(HTTPHeaderType.ContentLength, stats.size.toString())
+          .finalHeader();
 
-      readStream.on('close', (): void => {
+        // Enqueues the writing of the file.
+        this.httpClientSocket.writeFile(filePath);
+
+        // Finishes the body (even though the real writing hasn't been done yet).
         this.finalBodyChunk();
-      });
-
-      readStream.pipe(this.httpClientSocket.socket);
-    });
+      }
+    );
 
     return this;
   }

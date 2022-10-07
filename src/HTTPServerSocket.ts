@@ -1,6 +1,24 @@
-import { Server, Socket } from "net";
+/*
+  HannaHTTP extremely fast and customizable HTTP server.
+  Copyright (C) Luke A.C.A. Rieff 2022
+
+  This program is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or
+  (at your option) any later version.
+
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
 import { EventEmitter } from "stream";
-import { TLSSocket } from "tls";
+import net from "net";
+import { HTTPClientSocket } from "./HTTPClientSocket";
 
 export enum HTTPServerSocketEvent {
   ClientConnected = "ClientConnected",
@@ -10,7 +28,7 @@ export enum HTTPServerSocketEvent {
 }
 
 export class HTTPServerSocket extends EventEmitter {
-  public constructor(public readonly server: Server) {
+  public constructor(public readonly server: net.Server) {
     super();
   }
 
@@ -19,7 +37,7 @@ export class HTTPServerSocket extends EventEmitter {
    * @param server the server to wrap.
    * @returns the wrapped server.
    */
-  public static fromServer(server: Server) {
+  public static fromServer(server: net.Server) {
     return new HTTPServerSocket(server);
   }
 
@@ -58,7 +76,9 @@ export class HTTPServerSocket extends EventEmitter {
   protected _registerListeners(): void {
     this.server.on("close", () => this._onCloseEvent());
     this.server.on("listening", () => this._onListeningEvent());
-    this.server.on("connection", (clientSocket: Socket) => this._onConnectionEvent(clientSocket));
+    this.server.on("connection", (clientSocket: net.Socket) =>
+      this._onConnectionEvent(clientSocket)
+    );
     this.server.on("error", (error: Error) => this._onError(error));
   }
 
@@ -74,7 +94,7 @@ export class HTTPServerSocket extends EventEmitter {
    * Gets called when a new client socket has connected.
    * @param clientSocket the client socket that connected.
    */
-  protected _onConnectionEvent(clientSocket: Socket): void {
+  protected _onConnectionEvent(clientSocket: net.Socket): void {
     // Wraps the client socket in the http client socket.
     const httpClientSocket: HTTPClientSocket =
       HTTPClientSocket.fromSocket(clientSocket);
@@ -98,45 +118,5 @@ export class HTTPServerSocket extends EventEmitter {
   protected _onError(error: Error): void {
     // Emits the event.
     this.emit(HTTPServerSocketEvent.Error, error);
-  }
-}
-
-export class HTTPClientSocket {
-  public constructor(public readonly socket: Socket) {}
-
-  /**
-   * Wraps the given socket in a http client socket.
-   * @param socket the socket to wrap.
-   * @returns the wrapped socket.
-   */
-  public static fromSocket(socket: Socket) {
-    return new HTTPClientSocket(socket);
-  }
-
-  /**
-   * If the socket is tls or not.
-   * @returns the boolean indicating if the socket is tls or not.
-   */
-  public get secure(): boolean {
-    return this.socket instanceof TLSSocket;
-  }
-
-  /**
-   * Destroys the socket.
-   * @returns the current instance.
-   */
-  public destroy(): this {
-    this.socket.destroy();
-    return this;
-  }
-
-  /**
-   * Writes the given buffer.
-   * @param buffer the buffer to write.
-   * @returns the current instance.
-   */
-  public write(buffer: Buffer): this {
-    this.socket.write(buffer);
-    return this;
   }
 }

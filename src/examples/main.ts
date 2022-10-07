@@ -1,34 +1,40 @@
 import { HTTPSimpleRouter } from "../HTTPRouter";
 import { HTTPServerPlain } from "../HTTPServer";
-import { middleware } from "../middleware";
-import path from 'path';
+import path from "path";
+import serveStaticFiles from "../middleware/static";
+import { bodyReader, jsonBodyParser } from "../middleware/body";
+import { simpleLogger } from "../middleware/logging";
 
 const httpSimpleNestedRouter: HTTPSimpleRouter = new HTTPSimpleRouter();
 
-httpSimpleNestedRouter.get('/all', (req, res, next) => {
+httpSimpleNestedRouter.get("/all", (match, req, res, next) => {
   res.json({
-    hello: "world"
+    hello: "world",
   });
 });
 
 const httpSimpleRouter: HTTPSimpleRouter = new HTTPSimpleRouter();
 
-httpSimpleRouter.use(middleware.logging.simple);
-httpSimpleRouter.use(middleware.body.reader);
-httpSimpleRouter.use(middleware.body.json);
+httpSimpleRouter.use(simpleLogger());
+httpSimpleRouter.use(bodyReader());
+httpSimpleRouter.use(jsonBodyParser());
 
-httpSimpleRouter.get('/', (req, res, next) => {
-  res.file(path.join(__dirname, 'files', 'index.html'));
+httpSimpleRouter.get("/", (match, req, res, next) => {
+  res.file(path.join(__dirname, "files", "index.html"));
 });
 
-httpSimpleRouter.get('/api/*', httpSimpleNestedRouter);
+httpSimpleRouter.get("/api/*", httpSimpleNestedRouter);
+httpSimpleRouter.get(
+  "/static/*",
+  serveStaticFiles(path.join(__dirname, "files"))
+);
 
-httpSimpleRouter.any('/*', (req, res, next) => {
-  res.text('Page not found!', 404);
+httpSimpleRouter.get("/test/:store_id/:article_id", (match, req, res, next) => {
+  res.json({
+    parameters: match.parameters,
+  });
 });
-
-console.dir(httpSimpleRouter, { depth: null});
 
 const httpServer: HTTPServerPlain = new HTTPServerPlain(httpSimpleRouter);
 
-httpServer.httpServerSocket.listen(8080, 'localhost', 10);
+httpServer.httpServerSocket.listen(8080, "localhost", 10);

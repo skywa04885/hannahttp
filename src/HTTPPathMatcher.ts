@@ -1,13 +1,28 @@
-export interface HTTPUriMatcherResult {
-  parameters: { [key: string]: string };
-  remainder: string | null;
-}
+/*
+  HannaHTTP extremely fast and customizable HTTP server.
+  Copyright (C) Luke A.C.A. Rieff 2022
 
-export class HTTPUriMatcher {
+  This program is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or
+  (at your option) any later version.
+
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+import { HTTPPathMatch } from "./HTTPPathMatch";
+
+export class HTTPPathMatcher {
   /**
-   * Constructs a new HTTP uri matcher.
+   * Constructs a new HTTP path matcher.
    * @param regularExpression the regular expression to match against.
-   * @param parameterNames the parameters.
+   * @param parameterNames the array of parameters which will be processed.
    */
   protected constructor(
     public readonly regularExpression: RegExp,
@@ -20,6 +35,7 @@ export class HTTPUriMatcher {
    * @returns the cleaned path.
    */
   protected static cleanPath(pathString: string): string {
+    // Replaces all the multiple occurences of slashes with a single slash.
     pathString = pathString.replace(/\\+/, "/");
 
     // Checks if there is any prefix or suffix slash.
@@ -47,7 +63,7 @@ export class HTTPUriMatcher {
    * @param pathString the path string.
    * @returns the parsed URI matcher.
    */
-  public static fromPath(pathString: string): HTTPUriMatcher {
+  public static fromPath(pathString: string): HTTPPathMatcher {
     // Cleans the path.
     pathString = this.cleanPath(pathString);
 
@@ -87,7 +103,7 @@ export class HTTPUriMatcher {
             throw new Error(
               `Cannot use '*' pattern while not at the end of the path.`
             );
-          
+
           // Returns the matcher for the regular expression.
           return `(?<__remainder__>.*)`;
         }
@@ -102,7 +118,7 @@ export class HTTPUriMatcher {
     );
 
     // Returns the final URI matcher.
-    return new HTTPUriMatcher(regularExpression, parameterNames);
+    return new HTTPPathMatcher(regularExpression, parameterNames);
   }
 
   /**
@@ -110,9 +126,9 @@ export class HTTPUriMatcher {
    * @param pathString the path to match against.
    * @returns the matching result or null.
    */
-  public match(pathString: string): HTTPUriMatcherResult | null {
+  public match(pathString: string): HTTPPathMatch | null {
     // Cleans the path string.
-    pathString = HTTPUriMatcher.cleanPath(pathString);
+    pathString = HTTPPathMatcher.cleanPath(pathString);
 
     // Performs the matching, and if nothing matches return null.
     const regExpMatchArray: RegExpMatchArray | null = pathString.match(
@@ -121,7 +137,7 @@ export class HTTPUriMatcher {
     if (regExpMatchArray === null) return null;
 
     // Constructs the result object.
-    const matcherResult: HTTPUriMatcherResult = {
+    const matcherResult: HTTPPathMatch = {
       parameters: {},
       remainder: null,
     };
