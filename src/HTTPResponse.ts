@@ -22,6 +22,7 @@ import { HTTPContentType } from "./HTTPContentType";
 import { HTTPHeaderType } from "./HTTPHeaderType";
 import { HTTPClientSocket } from "./HTTPClientSocket";
 import { HTTPVersion } from "./HTTPVersion";
+import { EventEmitter } from "stream";
 
 export enum HTTPResponseState {
   WritingResponseLine = 0,
@@ -30,16 +31,21 @@ export enum HTTPResponseState {
   Finished = 3,
 }
 
+export enum HTTPResponseEvent {
+  StateChange = "StateChange",
+}
+
 export class HTTPResponse {
   protected _state: HTTPResponseState;
 
   public constructor(
     public readonly httpVersion: HTTPVersion,
-    public readonly httpClientSocket: HTTPClientSocket
+    public readonly httpClientSocket: HTTPClientSocket,
+    public readonly finishedCallback: () => void
   ) {
     this._state = HTTPResponseState.WritingResponseLine;
   }
-
+  
   /**
    * Resets the response (for multiple request on a single socket).
    * @returns the current instance.
@@ -109,7 +115,7 @@ export class HTTPResponse {
   public defaultHeaders(): this {
     return this.header(HTTPHeaderType.Date, new Date().toUTCString())
       .header(HTTPHeaderType.Server, "HannaHTTP")
-      .header(HTTPHeaderType.Connection, "close");
+      .header(HTTPHeaderType.Connection, "keep-alive");
   }
 
   /**
@@ -160,8 +166,9 @@ export class HTTPResponse {
     if (this._state !== HTTPResponseState.WritingResponseBody)
       throw new Error(`Cannot finish body in state: ${this._state}`);
 
-    // Finishes the response.
+    // Finishes the response by chaning the state and calling the finished callback.
     this._state = HTTPResponseState.Finished;
+    this.finishedCallback();
 
     // Returns the instance.
     return this;

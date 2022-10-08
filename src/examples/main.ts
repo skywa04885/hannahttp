@@ -15,7 +15,7 @@ httpSimpleNestedRouter.get("/all", (match, req, res, next) => {
 
 const httpSimpleRouter: HTTPSimpleRouter = new HTTPSimpleRouter();
 
-httpSimpleRouter.use(simpleLogger());
+// httpSimpleRouter.use(simpleLogger());
 httpSimpleRouter.use(bodyReader());
 httpSimpleRouter.use(jsonBodyParser());
 

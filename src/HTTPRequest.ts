@@ -92,8 +92,8 @@ export enum HTTPRequestEvent {
 }
 
 export class HTTPRequest<T = any> extends EventEmitter {
-  protected state: HTTPRequestState;
-  protected buffer: Buffer | null;
+  protected _state: HTTPRequestState;
+  protected _buffer: Buffer | null;
 
   public method: HTTPMethod | null;
   public uri: HTTPURI | null;
@@ -109,8 +109,8 @@ export class HTTPRequest<T = any> extends EventEmitter {
   public constructor() {
     super();
 
-    this.state = HTTPRequestState.REQUEST;
-    this.buffer = null;
+    this._state = HTTPRequestState.REQUEST;
+    this._buffer = null;
 
     this.method = null;
     this.uri = null;
@@ -122,6 +122,21 @@ export class HTTPRequest<T = any> extends EventEmitter {
     this.body = null;
 
     this.u = null;
+  }
+
+  public reset() {
+    // Updates the state.
+    this._state = HTTPRequestState.REQUEST;
+    this.method = null;
+    this.uri = null;
+    this.rawUri = null;
+    this.version = null;
+    this.headers = null;
+    this.body = null;
+    this.u = null;
+    
+    // Calls the update event because we want to process old chunks.
+    this.update();
   }
 
   /**
@@ -159,26 +174,26 @@ export class HTTPRequest<T = any> extends EventEmitter {
     const separator: string = "\r\n";
 
     // If there is no buffer, return.
-    if (this.buffer === null) return null;
+    if (this._buffer === null) return null;
 
     // If there is no newline yet, return.
-    const separatorIndex: number = this.buffer.indexOf(separator, 0, "utf-8");
+    const separatorIndex: number = this._buffer.indexOf(separator, 0, "utf-8");
     if (separatorIndex === -1) return null;
 
     // Gets the newline from the buffer.
     const line: Buffer = Buffer.alloc(separatorIndex);
-    this.buffer.copy(line, 0, 0, separatorIndex);
+    this._buffer.copy(line, 0, 0, separatorIndex);
 
     // Checks if there should be anything remaining in the buffer, if not null it.
-    if (separatorIndex + separator.length === this.buffer.length)
-      this.buffer = null;
+    if (separatorIndex + separator.length === this._buffer.length)
+      this._buffer = null;
     else {
       // Copies the remainder of the internal buffer.
-      const buffer: Buffer = Buffer.alloc(this.buffer.length - separatorIndex);
-      this.buffer.copy(buffer, 0, separatorIndex + separator.length);
+      const buffer: Buffer = Buffer.alloc(this._buffer.length - separatorIndex - separator.length);
+      this._buffer.copy(buffer, 0, separatorIndex + separator.length);
 
       // Overrides the internal buffer.
-      this.buffer = buffer;
+      this._buffer = buffer;
     }
 
     // returns the found line.
@@ -233,7 +248,7 @@ export class HTTPRequest<T = any> extends EventEmitter {
     this.version = versionString as HTTPVersion;
 
     // Updates the state, and emits the event.
-    this.state = HTTPRequestState.HEADERS;
+    this._state = HTTPRequestState.HEADERS;
     this.emit(HTTPRequestEvent.RequestLineLoaded);
 
     // Returns false to continue the loop.
@@ -257,7 +272,7 @@ export class HTTPRequest<T = any> extends EventEmitter {
     // If the line length is equal to zero, we've reached the end of the headers.
     if (lineString.length === 0) {
       // Sets the new state.
-      this.state = HTTPRequestState.FINISHED;
+      this._state = HTTPRequestState.FINISHED;
 
       // Emits the event for headers done loading.
       this.emit(HTTPRequestEvent.RequestHeadersLoaded);
@@ -289,24 +304,24 @@ export class HTTPRequest<T = any> extends EventEmitter {
     // Makes sure there is a body and a buffer.
     if (this.body === null)
       throw new Error("Could not update body: no body instance.");
-    if (this.buffer === null)
+    if (this._buffer === null)
       throw new Error("Could not update body: no buffer instance.");
 
     // Updates the body.
-    const consumedBytes: number = this.body.update(this.buffer);
+    const consumedBytes: number = this.body.update(this._buffer);
 
     // Removes the consumed bytes of the internal buffer.
-    if (this.buffer.length === consumedBytes) this.buffer = null;
+    if (this._buffer.length === consumedBytes) this._buffer = null;
     else {
-      const buffer: Buffer = Buffer.alloc(this.buffer.length - consumedBytes);
-      this.buffer.copy(buffer, 0, consumedBytes);
-      this.buffer = buffer;
+      const buffer: Buffer = Buffer.alloc(this._buffer.length - consumedBytes);
+      this._buffer.copy(buffer, 0, consumedBytes);
+      this._buffer = buffer;
     }
 
     // Updates the body, and if it returns true we know we're done loading.
     if (this.body.saturated) {
       // Updates the state variable.
-      this.state = HTTPRequestState.FINISHED;
+      this._state = HTTPRequestState.FINISHED;
 
       // Emits the event indicating the finished loading.
       this.emit(HTTPRequestEvent.RequestBodyLoaded);
@@ -322,11 +337,11 @@ export class HTTPRequest<T = any> extends EventEmitter {
    */
   private update() {
     // Stays in loop as long as we're not done processing the body.
-    while (this.state !== HTTPRequestState.FINISHED) {
+    while (this._state !== HTTPRequestState.FINISHED) {
       let shouldBreak: boolean = false;
 
       // Calls the appropriate method.
-      switch (this.state) {
+      switch (this._state) {
         case HTTPRequestState.REQUEST:
           shouldBreak = this.updateRequest();
           break;
@@ -352,8 +367,8 @@ export class HTTPRequest<T = any> extends EventEmitter {
    */
   public write(chunk: Buffer): this {
     // Concats the buffer or makes it the primary buffer.
-    if (this.buffer === null) this.buffer = chunk;
-    else this.buffer = Buffer.concat([this.buffer, chunk]);
+    if (this._buffer === null) this._buffer = chunk;
+    else this._buffer = Buffer.concat([this._buffer, chunk]);
 
     // Updates the request.
     this.update();
@@ -376,7 +391,7 @@ export class HTTPRequest<T = any> extends EventEmitter {
 
     // Creates the new buffer body instance, and changes the state to body loading.
     this.body = new HTTPRequestBufferBody(expectedSize);
-    this.state = HTTPRequestState.BODY;
+    this._state = HTTPRequestState.BODY;
 
     // Starts processing the existing data in the internal buffer.
     this.update();
