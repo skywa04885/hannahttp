@@ -16,13 +16,14 @@
   along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-import fs, { read, ReadStream } from "fs";
+import fs, { createWriteStream, read, ReadStream, WriteStream } from "fs";
 import path from "path";
 import { HTTPContentType } from "./HTTPContentType";
 import { HTTPHeaderType } from "./HTTPHeaderType";
 import { HTTPClientSocket } from "./HTTPClientSocket";
 import { HTTPVersion } from "./HTTPVersion";
-import { EventEmitter } from "stream";
+import { EventEmitter, Stream, Transform, Writable } from "stream";
+import { HTTPServerSocket } from "./HTTPServerSocket";
 
 export enum HTTPResponseState {
   WritingResponseLine = 0,
@@ -31,12 +32,17 @@ export enum HTTPResponseState {
   Finished = 3,
 }
 
-export enum HTTPResponseEvent {
-  StateChange = "StateChange",
+export enum HTTPResponseBodyType {
+  None = 0,
+  Regular = 1,
+  Chunked = 2,
 }
 
 export class HTTPResponse {
   protected _state: HTTPResponseState;
+  protected _enqueuedHeaders: [string, string][] | null;
+  protected _responseBodyType: HTTPResponseBodyType | null = null;
+  protected _bodyWritable: Writable | null = null;
 
   public constructor(
     public readonly httpVersion: HTTPVersion,
@@ -44,8 +50,11 @@ export class HTTPResponse {
     public readonly finishedCallback: () => void
   ) {
     this._state = HTTPResponseState.WritingResponseLine;
+    this._enqueuedHeaders = null;
+    this._responseBodyType = null;
+    this._bodyWritable = null;
   }
-  
+
   /**
    * Resets the response (for multiple request on a single socket).
    * @returns the current instance.
@@ -55,29 +64,47 @@ export class HTTPResponse {
     if (this._state !== HTTPResponseState.Finished)
       throw new Error("Cannot reset non-finished response!");
 
-    // Resets the state and other variables.
     this._state = HTTPResponseState.WritingResponseLine;
+    this._enqueuedHeaders = null;
+    this._responseBodyType = null;
+    this._bodyWritable = null;
 
     // Returns the current instance.
     return this;
   }
 
   /**
-   * gets the message for the given status code.
-   * @param code the response code to get the message for.
-   * @returns the message.
+   * Adds a transform stream.
+   * @param transform the transform stream.
+   * @returns the current instance.
    */
-  protected static _getMessageForStatusCode(code: number): string {
-    switch (code) {
-      case 200:
-        return "OK";
-      case 404:
-        return "Page not found";
-      case 500:
-        return "Internal server error";
-      default:
-        throw new Error(`Invalid code: ${code}`);
-    }
+  public addBodyTransform(transform: Transform): this {
+    // Checks if we're in the appropriate state.
+    if (
+      this._state !== HTTPResponseState.WritingResponseHeaders &&
+      this._state !== HTTPResponseState.WritingResponseLine
+    )
+      throw new Error(
+        "Cannot set body transformer when in other state than headers or response line."
+      );
+
+    // Checks if the content encoding type is buffer, if not, throw an error (required to prevent mess-ups).
+    if (this._responseBodyType !== HTTPResponseBodyType.Chunked)
+      throw new Error(
+        "Cannot transform body when the content type is not chunked."
+      );
+
+    // Performs some logging.
+    this.httpClientSocket.trace(`Adding body transform, this is probably meant for compression.`);
+
+    // Adds the stream.
+    transform.pipe(this._bodyWritable!, {
+      end: this._bodyWritable === this.httpClientSocket.socket ? false : true,
+    });
+    this._bodyWritable = transform;
+
+    // Returns the current instance.
+    return this;
   }
 
   /**
@@ -99,10 +126,13 @@ export class HTTPResponse {
     const responseLineBuffer: Buffer = Buffer.from(responseLineString, "utf-8");
 
     // Writes the data to the http socket.
-    this.httpClientSocket.writeBuffer(responseLineBuffer);
+    this.httpClientSocket.socket.write(responseLineBuffer);
 
     // Updates the state (since we've written the response line).
     this._state = HTTPResponseState.WritingResponseHeaders;
+
+    // Writes the enqueued headers.
+    this._writeEnqueuedHeaders();
 
     // Returns the current instance.
     return this;
@@ -125,6 +155,13 @@ export class HTTPResponse {
    * @returns the current instance.
    */
   public header(key: string, value: string): this {
+    // If we're in the response line state (maybe during middleware) enqueue the headers.
+    if (this._state === HTTPResponseState.WritingResponseLine) {
+      if (this._enqueuedHeaders === null) this._enqueuedHeaders = [];
+      this._enqueuedHeaders.push([key, value]);
+      return this;
+    }
+
     // Makes sure we're in the correct state.
     if (this._state !== HTTPResponseState.WritingResponseHeaders)
       throw new Error(`Cannot write header in state: ${this._state}`);
@@ -134,40 +171,180 @@ export class HTTPResponse {
     const headerStringBuffer: Buffer = Buffer.from(headerString, "utf-8");
 
     // Writes the header to the socket.
-    this.httpClientSocket.writeBuffer(headerStringBuffer);
+    this.httpClientSocket.socket.write(headerStringBuffer);
 
     // Returns the instance.
     return this;
   }
 
   /**
-   * Writes an chunk of the body.
-   * @param chunk the chunk of the body to write.
+   * Tells the response we'll be sending a chunking response.
    * @returns the current instance.
    */
-  public bodyChunk(chunk: Buffer): this {
-    // Makes sure we're in the correct state.
+  public useChunkedBody(): this {
+    // Makes sure the type is not set yet.
+    if (this._responseBodyType !== null)
+      throw new Error(
+        `Response body type already set to: ${this._responseBodyType}`
+      );
+
+    // Makes sure we are in the proper state to determine the response type.
+    if (
+      this._state !== HTTPResponseState.WritingResponseHeaders &&
+      this._state !== HTTPResponseState.WritingResponseLine
+    )
+      throw new Error(
+        `Cannot begin writing chunked body in state: ${this._state}`
+      );
+
+    // Sets the response body type.
+    this._responseBodyType = HTTPResponseBodyType.Chunked;
+
+    // Sets the stream to write to.
+    this._bodyWritable = new Writable({
+      final: (callback: (error: Error | null | undefined) => void) => {
+        // Performs some logging.
+        this.httpClientSocket.trace(`Chunked body has finished writing, sending final zero chunk.`);
+
+
+        // Writes the final zero chunk.
+        this.httpClientSocket.socket.write(Buffer.from("0\r\n\r\n", "utf-8"));
+
+        // Calls the finished callback.
+        this.finishedCallback();
+
+        // Finishes the stream.
+        callback(null);
+      },
+      write: (
+        buffer: Buffer,
+        encoding: BufferEncoding,
+        callback: (error: Error | null | undefined) => void
+      ) => {
+        // Performs some logging.
+        this.httpClientSocket.trace(`Chunked body writing chunk of size ${buffer.length}.`);
+
+        // Creates the line that contains the length and the chunk.
+        const lengthLineBuffer: Buffer = Buffer.from(
+          `${buffer.length.toString(16)}\r\n`,
+          "utf-8"
+        );
+
+        // Writes the length line buffer and the buffer to the client.
+        this.httpClientSocket.socket.write(lengthLineBuffer);
+        this.httpClientSocket.socket.write(buffer);
+        this.httpClientSocket.socket.write(Buffer.from("\r\n", "utf-8"));
+
+        // Waits for the socket to drain before writing the next chunk.
+        if (this.httpClientSocket.socket.writableNeedDrain)
+          this.httpClientSocket.socket.once("drain", () => callback(null));
+        else callback(null);
+      },
+    });
+
+    // Returns the current instance.
+    return this;
+  }
+
+  /**
+   * Tells the response we'll be using a regular response.
+   * @param contentLength the length of the content about to be sent.
+   * @returns the current instance.
+   */
+  public useRegularBody(contentLength: number): this {
+    // Makes sure the type is not set yet.
+    if (this._responseBodyType !== null)
+      throw new Error(
+        `Response body type already set to: ${this._responseBodyType}`
+      );
+
+    // Makes sure we are in the proper state to determine the response type.
+    if (
+      this._state !== HTTPResponseState.WritingResponseHeaders &&
+      this._state !== HTTPResponseState.WritingResponseLine
+    )
+      throw new Error(
+        `Cannot begin writing regular body in state: ${this._state}`
+      );
+
+    // Sets the header for the content length.
+    this.header(HTTPHeaderType.ContentLength, contentLength.toString());
+
+    // Sets the response body type.
+    this._responseBodyType = HTTPResponseBodyType.Regular;
+
+    // Sets the body writable.
+    this._bodyWritable = new Writable({
+      final: (callback: (error: Error | null | undefined) => void) => {
+        // Performs some logging.
+        this.httpClientSocket.trace(`Regular body has finished writing.`);
+
+        // Calls the finished callback.
+        this.finishedCallback();
+
+        // Finishes the stream.
+        callback(null);
+      },
+      write: (
+        buffer: Buffer,
+        encoding: BufferEncoding,
+        callback: (error: Error | null | undefined) => void
+      ) => {
+        // Performs some logging.
+        this.httpClientSocket.trace(`Regular body writing ${buffer.length} bytes.`);
+
+        // Writes the chunk.
+        this.httpClientSocket.socket.write(buffer);
+
+        // Waits for the socket to drain before writing the next chunk.
+        if (this.httpClientSocket.socket.writableNeedDrain) {
+          this.httpClientSocket.socket.once("drain", () => callback(null));
+        } else callback(null);
+      },
+    });
+
+    // Returns the current instance.
+    return this;
+  }
+
+  /**
+   * The method to call when you want to write the body.
+   * @param buffer the buffer to write for the body.
+   * @returns the current instance.
+   */
+  public writeBody(buffer: Buffer): this {
+    // Checks if we're in the appropriate state.
     if (this._state !== HTTPResponseState.WritingResponseBody)
-      throw new Error(`Cannot write body chunk in state: ${this._state}`);
+      throw new Error(`Cannot write body in state: ${this._state}`);
 
-    // Writes the chunk.
-    this.httpClientSocket.writeBuffer(chunk);
+    // Makes sure the body writable is there.
+    if (this._bodyWritable === null)
+      throw new Error("Body writable must be defined!");
 
-    // Returns the instance.
+    // Writes the data to the body writable.
+    this._bodyWritable.write(buffer);
+    this._bodyWritable.end();
+
+    // Returns the current instance.
     return this;
   }
 
   /**
-   * Gets called when the final body chunk has been written.
+   * Ends the body.
    * @returns the current instance.
    */
-  public finalBodyChunk(): this {
+  public endBody(): this {
     // Makes sure we're in the correct state.
     if (this._state !== HTTPResponseState.WritingResponseBody)
       throw new Error(`Cannot finish body in state: ${this._state}`);
 
-    // Finishes the response by chaning the state and calling the finished callback.
+    // Performs some logging.
+    this.httpClientSocket.trace(`endBody(): body has been written.`);
+
+    // Changes the state to finished.
     this._state = HTTPResponseState.Finished;
+
+    // Calls the callback to indicate the next request can be handled.
     this.finishedCallback();
 
     // Returns the instance.
@@ -178,14 +355,17 @@ export class HTTPResponse {
    * Gets called after the final header has been written.
    * @returns the current instance.
    */
-  public finalHeader(): this {
+  public endHeaders(): this {
     // Makes sure we're in the correct state.
     if (this._state !== HTTPResponseState.WritingResponseHeaders)
       throw new Error(`Cannot finish headers in state: ${this._state}`);
 
+    // Performs some logging.
+    this.httpClientSocket.trace(`endHeaders(): headers have been written.`);
+
     // Writes the newline to indicate the end of the headers.
     const newlineStringBuffer: Buffer = Buffer.from("\r\n", "utf-8");
-    this.httpClientSocket.writeBuffer(newlineStringBuffer);
+    this.httpClientSocket.socket.write(newlineStringBuffer);
 
     // Updates the state.
     this._state = HTTPResponseState.WritingResponseBody;
@@ -193,6 +373,69 @@ export class HTTPResponse {
     // Returns the current instance.
     return this;
   }
+
+  //////////////////////////////////////////////////
+  // Static Methods
+  //////////////////////////////////////////////////
+
+  /**
+   * Gets the content type from the given file extension.
+   * @param extension the extension to get the content type for.
+   * @returns the content type.
+   */
+  protected static _httpContentTypeFromFileExtension(
+    extension: string
+  ): HTTPContentType {
+    switch (extension) {
+      case ".html":
+        return HTTPContentType.TextHTML;
+      case ".txt":
+        return HTTPContentType.TextPlain;
+      case ".jpg":
+        return HTTPContentType.ImageJPEG;
+      default:
+        return HTTPContentType.OctetStream;
+    }
+  }
+
+  /**
+   * gets the message for the given status code.
+   * @param code the response code to get the message for.
+   * @returns the message.
+   */
+  protected static _getMessageForStatusCode(code: number): string {
+    switch (code) {
+      case 200:
+        return "OK";
+      case 404:
+        return "Page not found";
+      case 500:
+        return "Internal server error";
+      default:
+        throw new Error(`Invalid code: ${code}`);
+    }
+  }
+
+  /**
+   * Writes the enqueued headers.
+   */
+  protected _writeEnqueuedHeaders(): void {
+    // If no enqueued headers return.
+    if (this._enqueuedHeaders === null) return;
+
+    // Performs some logging.
+    this.httpClientSocket.trace(`_writeEnqueuedHeaders(): writing ${this._enqueuedHeaders.length} enqueued headers. These headers are added before the response line was sent ...`);
+
+    // If enqueued headers, write them.
+    for (const [key, value] of this._enqueuedHeaders) this.header(key, value);
+
+    // Clear the enqueued headers.
+    this._enqueuedHeaders = null;
+  }
+
+  //////////////////////////////////////////////////
+  // Instance Methods (Simple Responses)
+  //////////////////////////////////////////////////
 
   /**
    * Writes an text response.
@@ -204,14 +447,34 @@ export class HTTPResponse {
     // Stringifies the object, and creates the buffer version.
     const textBuffer: Buffer = Buffer.from(text, "utf-8");
 
+    // If the body type is not equal to chunking, use the regular body, and throw an error if it is none.
+    if (this._responseBodyType !== HTTPResponseBodyType.Chunked) {
+      if (this._responseBodyType === HTTPResponseBodyType.None)
+        throw new Error(
+          "Cannot send text response when body type is set to none."
+        );
+
+      // Performs logging.
+      this.httpClientSocket.trace(
+        `text(): body type not specified yet. Choosing regular, since size is known.`
+      );
+
+      // Uses the regular body, with the given length.
+      this.useRegularBody(textBuffer.length);
+    }
+
+    // Performs the logging.
+    this.httpClientSocket.trace(
+      `text(): status code ${status}, size: ${textBuffer.length}`
+    );
+
     // Writes the response.
-    this.status(status)
-      .defaultHeaders()
-      .header(HTTPHeaderType.ContentType, HTTPContentType.TextPlain)
-      .header(HTTPHeaderType.ContentLength, textBuffer.length.toString())
-      .finalHeader()
-      .bodyChunk(textBuffer)
-      .finalBodyChunk();
+    this.status(status) // Writes the status line.
+      .defaultHeaders() // Writes the default headers.
+      .header(HTTPHeaderType.ContentType, HTTPContentType.TextPlain) // Writes teh content type header.
+      .endHeaders() // Ends the headers.
+      .writeBody(textBuffer) // Writes the body.
+      .endBody(); // Ends the body.
 
     // Returns the current instance.
     return this;
@@ -230,38 +493,37 @@ export class HTTPResponse {
       "utf-8"
     );
 
+    // If the body type is not equal to chunking, use the regular body, and throw an error if it is none.
+    if (this._responseBodyType !== HTTPResponseBodyType.Chunked) {
+      if (this._responseBodyType === HTTPResponseBodyType.None)
+        throw new Error(
+          "Cannot send json response when body type is set to none."
+        );
+
+      // Performs logging.
+      this.httpClientSocket.trace(
+        `json(): body type not specified yet. Choosing regular, since size is known.`
+      );
+
+      // Uses the regular body, with the given length.
+      this.useRegularBody(objectStringifiedBuffer.length);
+    }
+
+    // Performs the logging.
+    this.httpClientSocket.trace(
+      `json(): status code ${status}, size: ${objectStringifiedBuffer.length}`
+    );
+
     // Writes the response.
-    this.status(status)
-      .defaultHeaders()
-      .header(HTTPHeaderType.ContentType, HTTPContentType.ApplicationJson)
-      .header(
-        HTTPHeaderType.ContentLength,
-        objectStringifiedBuffer.length.toString()
-      )
-      .finalHeader()
-      .bodyChunk(objectStringifiedBuffer)
-      .finalBodyChunk();
+    this.status(status) // writes the status line.
+      .defaultHeaders() // Writes the default headers.
+      .header(HTTPHeaderType.ContentType, HTTPContentType.ApplicationJson) // Writes the content type header.
+      .endHeaders() // Ends the headers.
+      .writeBody(objectStringifiedBuffer) // Writes the body.
+      .endBody(); // Ends the body.
 
     // Returns the current instance.
     return this;
-  }
-
-  /**
-   * Gets the content type from the given file extension.
-   * @param extension the extension to get the content type for.
-   * @returns the content type.
-   */
-  protected static _httpContentTypeFromFileExtension(
-    extension: string
-  ): HTTPContentType {
-    switch (extension) {
-      case ".html":
-        return HTTPContentType.TextHTML;
-      case ".txt":
-        return HTTPContentType.TextPlain;
-      default:
-        return HTTPContentType.OctetStream;
-    }
   }
 
   /**
@@ -283,18 +545,36 @@ export class HTTPResponse {
         const httpContentType: HTTPContentType =
           HTTPResponse._httpContentTypeFromFileExtension(fileExtension);
 
+        // If the body type is not equal to chunking, use the regular body, and throw an error if it is none.
+        if (this._responseBodyType !== HTTPResponseBodyType.Chunked) {
+          if (this._responseBodyType === HTTPResponseBodyType.None)
+            throw new Error(
+              "Cannot send json response when body type is set to none."
+            );
+
+          // Performs logging.
+          this.httpClientSocket.trace(
+            `file(): body type not specified yet. Choosing regular, since size is known.`
+          );
+
+          // Uses the regular body, with the given length.
+          this.useRegularBody(stats.size);
+        }
+
+        // Performs the logging.
+        this.httpClientSocket.trace(
+          `file(): writing file '${filePath}', status code ${status}, size: ${stats.size}, type (MIME): ${httpContentType}`
+        );
+
         // Writes the response to the client.
-        this.status(status)
-          .defaultHeaders()
-          .header(HTTPHeaderType.ContentType, httpContentType)
-          .header(HTTPHeaderType.ContentLength, stats.size.toString())
-          .finalHeader();
+        this.status(status) // Writes the status.
+          .defaultHeaders() // Adds the default headers.
+          .header(HTTPHeaderType.ContentType, httpContentType) // Sets the content type.
+          .endHeaders(); // Finishes the headers.
 
-        // Enqueues the writing of the file.
-        this.httpClientSocket.writeFile(filePath);
-
-        // Finishes the body (even though the real writing hasn't been done yet).
-        this.finalBodyChunk();
+        // Creates the read stream.
+        const readStream: fs.ReadStream = fs.createReadStream(filePath);
+        readStream.pipe(this._bodyWritable!);
       }
     );
 

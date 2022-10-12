@@ -1,0 +1,103 @@
+import { HTTPEncodingHeader } from "../HTTPAcceptEncodingHeader";
+import { HTTPEncoding } from "../HTTPEncoding";
+import { HTTPHeaderType } from "../HTTPHeaderType";
+import { HTTPPathMatch } from "../HTTPPathMatch";
+import { HTTPRequest } from "../HTTPRequest";
+import { HTTPResponse } from "../HTTPResponse";
+import {
+  HTTPRouterCallback,
+  HTTPRouterNextFunction,
+  HTTPSimpleRouterHandler,
+} from "../HTTPRouter";
+import zlib from "zlib";
+import { match } from "assert";
+
+export interface IUseCompressionOptions {
+  match?: RegExp;
+  useGzip?: boolean;
+  useDeflate?: boolean;
+}
+
+/**
+ * Uses compression on the given route.
+ * @param options the options for the compression middleware.
+ * @returns the compression middelware callback.
+ */
+export const useCompression = (
+  options?: IUseCompressionOptions
+): HTTPRouterCallback => {
+  // Assigns the default options.
+  options = Object.assign(
+    {
+      match: null,
+      useGzip: true,
+      useDeflate: true,
+    },
+    options
+  );
+
+  return (
+    pathMatch: HTTPPathMatch,
+    request: HTTPRequest,
+    response: HTTPResponse,
+    next: HTTPRouterNextFunction
+  ): any => {
+    // Checks if we should perform compression at all.
+    if (options!.match && !options!.match!.test(pathMatch.remainder!)) {
+      // Performs some logging.
+      response.httpClientSocket.trace(`useCompression(): not compressing file '${pathMatch.remainder}' due to pattern mismatch.`);
+
+      // Goes to the next piece of middleware.
+      return next();
+    }
+
+    // Gets the accept encoding header value, and if it is not there just call the next handler.
+    const rawAcceptEncodingHeaderValue: string | null =
+      request.headers!.getSingleHeader(HTTPHeaderType.AcceptEncoding);
+    if (rawAcceptEncodingHeaderValue === null) return next();
+
+    // Parses the accept encoding header.
+    const acceptEncodingHeader: HTTPEncodingHeader =
+      HTTPEncodingHeader.fromValue(rawAcceptEncodingHeaderValue);
+
+    // Checks if the accept encoding header contains deflate or gzip, then uses either of them.
+    if (
+      acceptEncodingHeader.contains(HTTPEncoding.DEFLATE) &&
+      options!.useDeflate
+    ) {
+      // Performs some logging.
+      response.httpClientSocket.trace(`useCompression(): compressing file '${pathMatch.remainder}' with deflate.`);
+
+      // Compresses the response body.
+      const transferEncoding: HTTPEncodingHeader = new HTTPEncodingHeader([
+        HTTPEncoding.DEFLATE,
+        HTTPEncoding.Chunked,
+      ]);
+      response
+        .useChunkedBody()
+        .header(HTTPHeaderType.TransferEncoding, transferEncoding.encode())
+        .header(HTTPHeaderType.ContentEncoding, HTTPEncoding.DEFLATE)
+        .addBodyTransform(zlib.createDeflate());
+    } else if (
+      acceptEncodingHeader.contains(HTTPEncoding.GZIP) &&
+      options!.useGzip
+    ) {
+      // Performs some logging.
+      response.httpClientSocket.trace(`useCompression(): compressing file '${pathMatch.remainder}' with gzip.`);
+
+      // Compresses the response body.
+      const transferEncoding: HTTPEncodingHeader = new HTTPEncodingHeader([
+        HTTPEncoding.GZIP,
+        HTTPEncoding.Chunked,
+      ]);
+      response
+        .useChunkedBody()
+        .header(HTTPHeaderType.TransferEncoding, transferEncoding.encode())
+        .header(HTTPHeaderType.ContentEncoding, HTTPEncoding.GZIP)
+        .addBodyTransform(zlib.createGzip());
+    }
+
+    // Continues to the next handler.
+    return next();
+  };
+};

@@ -22,4 +22,7 @@ export enum HTTPHeaderType {
   Date = "Date",
   Server = "Server",
   Connection = "Connection",
+  AcceptEncoding = "Accept-Encoding",
+  TransferEncoding = "Transfer-Encoding",
+  ContentEncoding = "Content-Encoding",
 }

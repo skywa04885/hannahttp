@@ -23,140 +23,23 @@ import tls from "tls";
 import { buffer } from "stream/consumers";
 
 ////////////////////////////////////////////////////
-// (LOCAL) Write Operation Queue
-////////////////////////////////////////////////////
-
-class _WriteOperationQueue {
-  protected _head: _WriteOperation | null;
-  protected _tail: _WriteOperation | null;
-  protected _size: number;
-
-  /**
-   * Constructs a new write operation queue.
-   */
-  public constructor() {
-    this._head = this._tail = null;
-    this._size = 0;
-  }
-
-  /**
-   * Gets the size.
-   */
-  public get size(): number {
-    return this._size;
-  }
-
-  /**
-   * Checks if the queue is empty.
-   */
-  public get empty(): boolean {
-    return this.size === 0;
-  }
-
-  /**
-   * Dequeues an write operation.
-   * @returns the dequeued write operation.
-   */
-  public dequeue(): _WriteOperation | null {
-    // Return null if the queue is empty.
-    if (this._size === 0) return null;
-
-    // Pop of the head of the queue.
-    const op: _WriteOperation = this._head!;
-    this._head = this._head!.next;
-    op.next = null;
-
-    // Decrements the sizze.
-    --this._size;
-
-    // Returns the popped-off write operation.
-    return op;
-  }
-
-  /**
-   * Enqueues the given write operation.
-   * @param op the operation to enqueue.
-   * @returns the current instance.
-   */
-  public enqueue(op: _WriteOperation): this {
-    // If the head and tail are null, make the new op both.
-    if (this._size++ === 0) {
-      this._head = this._tail = op;
-      return this;
-    }
-
-    // Enqueues the element at the tail of the queue.
-    this._tail!.next = op;
-    this._tail = op;
-
-    // Returns the current instance.
-    return this;
-  }
-}
-
-export class _WriteOperation {
-  /**
-   * Constructs a new write operation.
-   * @param next the next write operation.
-   */
-  public constructor(public next: _WriteOperation | null = null) {}
-}
-
-export class _ReadableWriteOperation extends _WriteOperation {
-  /**
-   * Constructs a new readable write operation.
-   * @param readable the readable stream to use.
-   * @param next the next write operation.
-   */
-  public constructor(
-    public readonly readable: Readable,
-    next: _WriteOperation | null = null
-  ) {
-    super(next);
-  }
-
-  /**
-   * Creates a readable write operation from the given file.
-   * @param filePathString the path of the file to create the readable stream of.
-   * @param encoding the encoding to read the file with.
-   * @returns the write operation.
-   */
-  public static fromFile(
-    filePathString: string,
-    encoding: BufferEncoding = "binary"
-  ): _ReadableWriteOperation {
-    return new _ReadableWriteOperation(
-      fs.createReadStream(filePathString, {
-        encoding,
-      })
-    );
-  }
-
-  /**
-   * Creates a readable write operation from the given buffer.
-   * @param buffer the buffer to read from.
-   * @returns the write operation.
-   */
-  public static fromBuffer(buffer: Buffer): _ReadableWriteOperation {
-    return new _ReadableWriteOperation(Readable.from(buffer));
-  }
-}
-
-////////////////////////////////////////////////////
 // (GLOBAL) HTTP Client Socket
 ////////////////////////////////////////////////////
 
+export enum HTTPClientSocketLogLevel {
+  Trace = 0,
+  Info = 1,
+  Warn = 2,
+  Error = 3,
+}
+
 export class HTTPClientSocket {
-  protected _writeOperationsQueue: _WriteOperationQueue;
-  protected _writeOperation: _WriteOperation | null;
 
   /**
    * Constructs a new http client socket.
    * @param socket the socket to use.
    */
   public constructor(public readonly socket: net.Socket) {
-    this._writeOperationsQueue = new _WriteOperationQueue();
-    this._writeOperation = null;
   }
 
   /**
@@ -185,77 +68,22 @@ export class HTTPClientSocket {
     return this;
   }
 
-  /**
-   * Runs the next write operation.
-   */
-  protected _nextWriteOperation(): void {
-    // If there aren't any write operations left, just return.
-    if (this._writeOperationsQueue.empty) {
-      this._writeOperation = null;
-      return;
-    }
-
-    // Dequeues the available write operation into the current write operation.
-    this._writeOperation = this._writeOperationsQueue.dequeue();
-
-    // Checks if the write operation is a readable operation, if so pipe it to the
-    //  socket without ending the stream when it's done.
-    if (this._writeOperation instanceof _ReadableWriteOperation) {
-      this._writeOperation.readable.once("end", () => this._nextWriteOperation());
-      this._writeOperation.readable.pipe(this.socket, {
-        end: false,
-      });
-
-      return;
-    }
-
-    // Just run the next one, and throw warning since this one cannot be runned.
-    console.warn("Write operation skipped due to incompatible type.");
-    this._nextWriteOperation();
+  public trace(...items: any[]): this {
+    return this.log(HTTPClientSocketLogLevel.Trace, ...items);
   }
 
-  /**
-   * Enqueues the writing of the given file.
-   * @param filePath the path of the file to write.
-   * @param bufferEncoding the encoding of the buffer.
-   */
-  public writeFile(
-    filePath: string,
-    bufferEncoding: BufferEncoding = "binary"
-  ): this {
-    // Constructs the operation with the given filename.
-    const operation: _WriteOperation = _ReadableWriteOperation.fromFile(
-      filePath,
-      bufferEncoding
-    );
+  public log(level: HTTPClientSocketLogLevel, ...items: any[]): this {
+    // Gets the address.
+    const address: net.AddressInfo = this.socket.address() as net.AddressInfo;
+    
+    // Produces the line we'll print.
+    const line: string = `[${address.family} ${address.address}:${address.port} ${level}] ${items.map((item: any): string => item.toString()).join(' ')}`
 
-    // Enqueues the operation.
-    this._writeOperationsQueue.enqueue(operation);
-
-    // Checks if there is only one write operation, if so we'll run it immediately.
-    if (this._writeOperation === null) this._nextWriteOperation();
+    // Prints the line.
+    if (level === HTTPClientSocketLogLevel.Error) console.error(line);
+    else console.log(line);
 
     // Returns the current instance.
-    return this;
-  }
-
-  /**
-   * Writes the given buffer.
-   * @param buffer the buffer to enqueue.
-   * @returns the current instance.
-   */
-  public writeBuffer(buffer: Buffer): this {
-    // Constructs the operation.
-    const operation: _ReadableWriteOperation =
-      _ReadableWriteOperation.fromBuffer(buffer);
-
-    // Enqueues the operation.
-    this._writeOperationsQueue.enqueue(operation);
-
-    // Checks if there is only one write operation, if so we'll run it immediately.
-    if (this._writeOperation === null) this._nextWriteOperation();
-
-    // Returns the current instance,
     return this;
   }
 }

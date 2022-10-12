@@ -21,6 +21,6 @@ export enum HTTPContentType {
   TextPlain = "text/plain",
   TextHTML = "text/html",
   OctetStream = "application/octet-stream",
+  ImageJPEG = "image/jpeg",
   ApplicationXWWWFormUrlencoded = "application/x-www-form-urlencoded",
 }
-

@@ -107,91 +107,91 @@ export class HTTPSimpleRouter extends HTTPRouter {
   /**
    * Handles a PATCH request.
    * @param matcher the pattern to match against.
-   * @param handler the handler for when matches.
+   * @param handlers the handlers for when matches.
    * @returns the current instance.
    */
-  public patch(matcher: string, handler: HTTPSimpleRouterHandler): this {
-    return this.register(HTTPMethod.PATCH, matcher, handler);
+  public patch(matcher: string, ...handlers: HTTPSimpleRouterHandler[]): this {
+    return this.register(HTTPMethod.PATCH, matcher, ...handlers);
   }
 
   /**
    * Handles a TRACE request.
    * @param matcher the pattern to match against.
-   * @param handler the handler for when matches.
+   * @param handlers the handlers for when matches.
    * @returns the current instance.
    */
-  public trace(matcher: string, handler: HTTPSimpleRouterHandler): this {
-    return this.register(HTTPMethod.TRACE, matcher, handler);
+  public trace(matcher: string, ...handlers: HTTPSimpleRouterHandler[]): this {
+    return this.register(HTTPMethod.TRACE, matcher, ...handlers);
   }
 
   /**
    * Handles a CONNECT request.
    * @param matcher the pattern to match against.
-   * @param handler the handler for when matches.
+   * @param handlers the handlers for when matches.
    * @returns the current instance.
    */
-  public connect(matcher: string, handler: HTTPSimpleRouterHandler): this {
-    return this.register(HTTPMethod.CONNECT, matcher, handler);
+  public connect(matcher: string, ...handlers: HTTPSimpleRouterHandler[]): this {
+    return this.register(HTTPMethod.CONNECT, matcher, ...handlers);
   }
 
   /**
    * Handles a HEAD request.
    * @param matcher the pattern to match against.
-   * @param handler the handler for when matches.
+   * @param handlers the handlers for when matches.
    * @returns the current instance.
    */
-  public head(matcher: string, handler: HTTPSimpleRouterHandler): this {
-    return this.register(HTTPMethod.HEAD, matcher, handler);
+  public head(matcher: string, ...handlers: HTTPSimpleRouterHandler[]): this {
+    return this.register(HTTPMethod.HEAD, matcher, ...handlers);
   }
 
   /**
    * Handles a PUT request.
    * @param matcher the pattern to match against.
-   * @param handler the handler for when matches.
+   * @param handlers the handlers for when matches.
    * @returns the current instance.
    */
-  public put(matcher: string, handler: HTTPSimpleRouterHandler): this {
-    return this.register(HTTPMethod.PUT, matcher, handler);
+  public put(matcher: string, ...handlers: HTTPSimpleRouterHandler[]): this {
+    return this.register(HTTPMethod.PUT, matcher, ...handlers);
   }
 
   /**
    * Handles a DELETE request.
    * @param matcher the pattern to match against.
-   * @param handler the handler for when matches.
+   * @param handlers the handlers for when matches.
    * @returns the current instance.
    */
-  public delete(matcher: string, handler: HTTPSimpleRouterHandler): this {
-    return this.register(HTTPMethod.DELETE, matcher, handler);
+  public delete(matcher: string, ...handlers: HTTPSimpleRouterHandler[]): this {
+    return this.register(HTTPMethod.DELETE, matcher, ...handlers);
   }
 
   /**
    * Handles a GET request.
    * @param matcher the pattern to match against.
-   * @param handler the handler for when matches.
+   * @param handlers the handlers for when matches.
    * @returns the current instance.
    */
-  public get(matcher: string, handler: HTTPSimpleRouterHandler): this {
-    return this.register(HTTPMethod.GET, matcher, handler);
+  public get(matcher: string, ...handlers: HTTPSimpleRouterHandler[]): this {
+    return this.register(HTTPMethod.GET, matcher, ...handlers);
   }
 
   /**
    * Handles a POST request.
    * @param matcher the pattern to match against.
-   * @param handler the handler for when matches.
+   * @param handlers the handlers for when matches.
    * @returns the current instance.
    */
-  public post(matcher: string, handler: HTTPSimpleRouterHandler): this {
-    return this.register(HTTPMethod.POST, matcher, handler);
+  public post(matcher: string, ...handlers: HTTPSimpleRouterHandler[]): this {
+    return this.register(HTTPMethod.POST, matcher, ...handlers);
   }
 
   /**
    * Registers a handler for a matcher, that works with any method.
    * @param matcher the matcher.
-   * @param handler the handler to run on all methods which paths match.
+   * @param handlers the handlers to run on all methods which paths match.
    * @returns the current instance.
    */
-  public any(matcher: string, handler: HTTPSimpleRouterHandler): this {
-    return this.register(null, matcher, handler);
+  public any(matcher: string, ...handlers: HTTPSimpleRouterHandler[]): this {
+    return this.register(null, matcher, ...handlers);
   }
 
   /**
@@ -207,13 +207,13 @@ export class HTTPSimpleRouter extends HTTPRouter {
    * Registers a new handler.
    * @param httpMethod the method to handle.
    * @param matcher the matcher that will determine if the handler should run.
-   * @param handler the handler to run on the given method if the path matches.
+   * @param handlers the handlers to run on the given method if the path matches.
    * @returns The current instance.
    */
   public register(
     httpMethod: HTTPMethod | null,
     matcher: string,
-    handler: HTTPSimpleRouterHandler
+    ...handlers: HTTPSimpleRouterHandler[]
   ): this {
     // Gets the numeric version of the method (will allow quicker matching).
     const httpSimpleRouterMethod: HTTPSimpleRouterMethod | null =
@@ -225,7 +225,9 @@ export class HTTPSimpleRouter extends HTTPRouter {
     const httpUriMatcher = HTTPPathMatcher.fromPath(matcher);
 
     // Inserts the element into the router.
-    this._elements.push([httpSimpleRouterMethod, httpUriMatcher, handler]);
+    handlers.forEach((handler: HTTPSimpleRouterHandler): void => {
+      this._elements.push([httpSimpleRouterMethod, httpUriMatcher, handler]);
+    });
 
     // Returns the current instance.
     return this;

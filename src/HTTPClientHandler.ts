@@ -19,7 +19,6 @@
 import { HTTPRequest, HTTPRequestBufferBody, HTTPRequestEvent } from "./HTTPRequest";
 import {
   HTTPResponse,
-  HTTPResponseEvent,
   HTTPResponseState,
 } from "./HTTPResponse";
 import { HTTPRouter } from "./HTTPRouter";
