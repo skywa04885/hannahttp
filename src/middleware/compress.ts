@@ -16,7 +16,7 @@
   along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { HTTPEncodingHeader } from "../HTTPAcceptEncodingHeader";
+import { HTTPEncodingHeader } from "../HTTPEncodingHeader";
 import { HTTPEncoding } from "../HTTPEncoding";
 import { HTTPHeaderType } from "../HTTPHeaderType";
 import { HTTPPathMatch } from "../HTTPPathMatch";
@@ -63,8 +63,10 @@ export const useCompression = (
     // Checks if we should perform compression at all.
     if (options!.match && !options!.match!.test(pathMatch.remainder!)) {
       // Performs some logging.
-      response.httpClientSocket.trace(
-        `useCompression(): not compressing file '${pathMatch.remainder}' due to pattern mismatch.`
+      response.session.shouldTrace(() =>
+        response.session.trace(
+          `useCompression(): not compressing file '${pathMatch.remainder}' due to pattern mismatch.`
+        )
       );
 
       // Goes to the next piece of middleware.
@@ -86,8 +88,10 @@ export const useCompression = (
       options!.useDeflate
     ) {
       // Performs some logging.
-      response.httpClientSocket.trace(
-        `useCompression(): compressing file '${pathMatch.remainder}' with deflate.`
+      response.session.shouldTrace(() =>
+        response.session.trace(
+          `useCompression(): compressing file '${pathMatch.remainder}' with deflate.`
+        )
       );
 
       // Compresses the response body.
@@ -105,8 +109,10 @@ export const useCompression = (
       options!.useGzip
     ) {
       // Performs some logging.
-      response.httpClientSocket.trace(
-        `useCompression(): compressing file '${pathMatch.remainder}' with gzip.`
+      response.session.shouldTrace(() =>
+        response.session.trace(
+          `useCompression(): compressing file '${pathMatch.remainder}' with gzip.`
+        )
       );
 
       // Compresses the response body.

@@ -16,63 +16,72 @@
   along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { HTTPRequest, HTTPRequestBufferBody, HTTPRequestEvent } from "./HTTPRequest";
 import {
-  HTTPResponse,
-  HTTPResponseState,
-} from "./HTTPResponse";
+  HTTPRequest,
+  HTTPRequestBufferBody,
+  HTTPRequestEvent,
+} from "./HTTPRequest";
+import { HTTPResponse, HTTPResponseState } from "./HTTPResponse";
 import { HTTPRouter } from "./HTTPRouter";
 import { HTTPClientSocket } from "./HTTPClientSocket";
+import { HTTPSession } from "./HTTPSession";
+import { HTTPServer } from "./HTTPServer";
 
 export class HTTPClientHandler {
-  public _request: HTTPRequest; // The request object & parser (allows pipelining).
-
-  public constructor(
-    public readonly httpClientSocket: HTTPClientSocket,
-    public readonly httpRouter: HTTPRouter
-  ) {
-    this._request = new HTTPRequest();
-
-    // Registers the socket events.
-    this.httpClientSocket.socket.on("data", (chunk: Buffer) =>
-      this._onHttpClientSocketDataEvent(chunk)
-    );
-    this._request.on(HTTPRequestEvent.RequestHeadersLoaded, () =>
-      this._onRequestFinishedLoadingEvent()
-    );
-  }
+  protected _session: HTTPSession;
+  protected _request: HTTPRequest; // The request object & parser (allows pipelining).
 
   /**
-   * Gets called when a request finished the loading phase.
+   * Constructs a new client handler.
+   * @param client the client.
+   * @param server the server.
    */
-  protected _onRequestFinishedLoadingEvent() {
-    // Creates the http response.
+  protected constructor(
+    public readonly client: HTTPClientSocket,
+    public readonly server: HTTPServer
+  ) {
+    // Creates the session and the request.
+    this._session = new HTTPSession(client, server);
+    this._request = new HTTPRequest(this._session);
+
+    // Pipes all the received data to the request.
+    this.client.socket.pipe(this._request);
+
+    // Handles the even where the request headers are loaded (enough to handle the request).
+    this._request.on(HTTPRequestEvent.HeadersLoaded, () =>
+      this._onRequest()
+    );
+  }
+  
+  /**
+   * Gets called when a new request has been received.
+   */
+  protected _onRequest(): void {
+    // Creates the response, this will be used to respond to the request.
     const response: HTTPResponse = new HTTPResponse(
       this._request.version!,
-      this.httpClientSocket,
+      this._session,
       () => this._request.reset()
     );
 
     // Handles the request and response in the router.
-    this.httpRouter.handle(this._request, response);
+    this.server.router.handle(this._request, response);
   }
 
   /**
-   * Forwards the received data from the socket to the request.
-   * @param chunk the chunk of data we've received.
+   * Creates a new client handler from the given client.
+   * @param client the client to create a handler for.
+   * @param server the server from which the request comes.
+   * @returns the client handler.
    */
-  protected _onHttpClientSocketDataEvent(chunk: Buffer): void {
-    this._request.write(chunk);
-  }
-
-  public static fromHttpClientSocket(
-    httpClientSocket: HTTPClientSocket,
-    httpRouter: HTTPRouter
+  public static fromClientAndServer(
+    client: HTTPClientSocket,
+    server: HTTPServer,
   ): HTTPClientHandler {
     // Creates the http client handler.
     const httpClientHandler: HTTPClientHandler = new HTTPClientHandler(
-      httpClientSocket,
-      httpRouter
+      client,
+      server,
     );
 
     // Returns the client handler.

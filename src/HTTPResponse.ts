@@ -24,6 +24,7 @@ import { HTTPClientSocket } from "./HTTPClientSocket";
 import { HTTPVersion } from "./HTTPVersion";
 import { EventEmitter, Stream, Transform, Writable } from "stream";
 import { HTTPServerSocket } from "./HTTPServerSocket";
+import { HTTPSession } from "./HTTPSession";
 
 export enum HTTPResponseState {
   WritingResponseLine = 0,
@@ -46,7 +47,7 @@ export class HTTPResponse {
 
   public constructor(
     public readonly httpVersion: HTTPVersion,
-    public readonly httpClientSocket: HTTPClientSocket,
+    public readonly session: HTTPSession,
     public readonly finishedCallback: () => void
   ) {
     this._state = HTTPResponseState.WritingResponseLine;
@@ -95,11 +96,15 @@ export class HTTPResponse {
       );
 
     // Performs some logging.
-    this.httpClientSocket.trace(`Adding body transform, this is probably meant for compression.`);
+    this.session.shouldTrace(() =>
+      this.session.trace(
+        `Adding body transform, this is probably meant for compression.`
+      )
+    );
 
     // Adds the stream.
     transform.pipe(this._bodyWritable!, {
-      end: this._bodyWritable === this.httpClientSocket.socket ? false : true,
+      end: this._bodyWritable === this.session.client.socket ? false : true,
     });
     this._bodyWritable = transform;
 
@@ -126,7 +131,7 @@ export class HTTPResponse {
     const responseLineBuffer: Buffer = Buffer.from(responseLineString, "utf-8");
 
     // Writes the data to the http socket.
-    this.httpClientSocket.socket.write(responseLineBuffer);
+    this.session.client.socket.write(responseLineBuffer);
 
     // Updates the state (since we've written the response line).
     this._state = HTTPResponseState.WritingResponseHeaders;
@@ -171,7 +176,7 @@ export class HTTPResponse {
     const headerStringBuffer: Buffer = Buffer.from(headerString, "utf-8");
 
     // Writes the header to the socket.
-    this.httpClientSocket.socket.write(headerStringBuffer);
+    this.session.client.socket.write(headerStringBuffer);
 
     // Returns the instance.
     return this;
@@ -204,11 +209,14 @@ export class HTTPResponse {
     this._bodyWritable = new Writable({
       final: (callback: (error: Error | null | undefined) => void) => {
         // Performs some logging.
-        this.httpClientSocket.trace(`Chunked body has finished writing, sending final zero chunk.`);
-
+        this.session.shouldTrace(() =>
+          this.session.trace(
+            `Chunked body has finished writing, sending final zero chunk.`
+          )
+        );
 
         // Writes the final zero chunk.
-        this.httpClientSocket.socket.write(Buffer.from("0\r\n\r\n", "utf-8"));
+        this.session.client.socket.write(Buffer.from("0\r\n\r\n", "utf-8"));
 
         // Calls the finished callback.
         this.finishedCallback();
@@ -222,7 +230,11 @@ export class HTTPResponse {
         callback: (error: Error | null | undefined) => void
       ) => {
         // Performs some logging.
-        this.httpClientSocket.trace(`Chunked body writing chunk of size ${buffer.length}.`);
+        this.session.shouldTrace(() =>
+          this.session.trace(
+            `Chunked body writing chunk of size ${buffer.length}.`
+          )
+        );
 
         // Creates the line that contains the length and the chunk.
         const lengthLineBuffer: Buffer = Buffer.from(
@@ -231,13 +243,13 @@ export class HTTPResponse {
         );
 
         // Writes the length line buffer and the buffer to the client.
-        this.httpClientSocket.socket.write(lengthLineBuffer);
-        this.httpClientSocket.socket.write(buffer);
-        this.httpClientSocket.socket.write(Buffer.from("\r\n", "utf-8"));
+        this.session.client.socket.write(lengthLineBuffer);
+        this.session.client.socket.write(buffer);
+        this.session.client.socket.write(Buffer.from("\r\n", "utf-8"));
 
         // Waits for the socket to drain before writing the next chunk.
-        if (this.httpClientSocket.socket.writableNeedDrain)
-          this.httpClientSocket.socket.once("drain", () => callback(null));
+        if (this.session.client.socket.writableNeedDrain)
+          this.session.client.socket.once("drain", () => callback(null));
         else callback(null);
       },
     });
@@ -277,7 +289,9 @@ export class HTTPResponse {
     this._bodyWritable = new Writable({
       final: (callback: (error: Error | null | undefined) => void) => {
         // Performs some logging.
-        this.httpClientSocket.trace(`Regular body has finished writing.`);
+        this.session.shouldTrace(() =>
+          this.session.trace(`Regular body has finished writing.`)
+        );
 
         // Calls the finished callback.
         this.finishedCallback();
@@ -291,14 +305,16 @@ export class HTTPResponse {
         callback: (error: Error | null | undefined) => void
       ) => {
         // Performs some logging.
-        this.httpClientSocket.trace(`Regular body writing ${buffer.length} bytes.`);
+        this.session.shouldTrace(() =>
+          this.session.trace(`Regular body writing ${buffer.length} bytes.`)
+        );
 
         // Writes the chunk.
-        this.httpClientSocket.socket.write(buffer);
+        this.session.client.socket.write(buffer);
 
         // Waits for the socket to drain before writing the next chunk.
-        if (this.httpClientSocket.socket.writableNeedDrain) {
-          this.httpClientSocket.socket.once("drain", () => callback(null));
+        if (this.session.client.socket.writableNeedDrain) {
+          this.session.client.socket.once("drain", () => callback(null));
         } else callback(null);
       },
     });
@@ -339,7 +355,9 @@ export class HTTPResponse {
       throw new Error(`Cannot finish body in state: ${this._state}`);
 
     // Performs some logging.
-    this.httpClientSocket.trace(`endBody(): body has been written.`);
+    this.session.shouldTrace(() =>
+      this.session.trace(`endBody(): body has been written.`)
+    );
 
     // Changes the state to finished.
     this._state = HTTPResponseState.Finished;
@@ -361,11 +379,13 @@ export class HTTPResponse {
       throw new Error(`Cannot finish headers in state: ${this._state}`);
 
     // Performs some logging.
-    this.httpClientSocket.trace(`endHeaders(): headers have been written.`);
+    this.session.shouldTrace(() =>
+      this.session.trace(`endHeaders(): headers have been written.`)
+    );
 
     // Writes the newline to indicate the end of the headers.
     const newlineStringBuffer: Buffer = Buffer.from("\r\n", "utf-8");
-    this.httpClientSocket.socket.write(newlineStringBuffer);
+    this.session.client.socket.write(newlineStringBuffer);
 
     // Updates the state.
     this._state = HTTPResponseState.WritingResponseBody;
@@ -428,7 +448,13 @@ export class HTTPResponse {
     if (this._enqueuedHeaders === null) return;
 
     // Performs some logging.
-    this.httpClientSocket.trace(`_writeEnqueuedHeaders(): writing ${this._enqueuedHeaders.length} enqueued headers. These headers are added before the response line was sent ...`);
+    this.session.shouldTrace(() =>
+      this.session.trace(
+        `_writeEnqueuedHeaders(): writing ${
+          this._enqueuedHeaders!.length
+        } enqueued headers. These headers are added before the response line was sent ...`
+      )
+    );
 
     // If enqueued headers, write them.
     for (const [key, value] of this._enqueuedHeaders) this.header(key, value);
@@ -459,8 +485,10 @@ export class HTTPResponse {
         );
 
       // Performs logging.
-      this.httpClientSocket.trace(
-        `text(): body type not specified yet. Choosing regular, since size is known.`
+      this.session.shouldTrace(() =>
+        this.session.trace(
+          `text(): body type not specified yet. Choosing regular, since size is known.`
+        )
       );
 
       // Uses the regular body, with the given length.
@@ -468,8 +496,10 @@ export class HTTPResponse {
     }
 
     // Performs the logging.
-    this.httpClientSocket.trace(
-      `text(): status code ${status}, size: ${textBuffer.length}`
+    this.session.shouldTrace(() =>
+      this.session.trace(
+        `text(): status code ${status}, size: ${textBuffer.length}`
+      )
     );
 
     // Writes the response.
@@ -505,8 +535,10 @@ export class HTTPResponse {
         );
 
       // Performs logging.
-      this.httpClientSocket.trace(
-        `json(): body type not specified yet. Choosing regular, since size is known.`
+      this.session.shouldTrace(() =>
+        this.session.trace(
+          `json(): body type not specified yet. Choosing regular, since size is known.`
+        )
       );
 
       // Uses the regular body, with the given length.
@@ -514,8 +546,10 @@ export class HTTPResponse {
     }
 
     // Performs the logging.
-    this.httpClientSocket.trace(
-      `json(): status code ${status}, size: ${objectStringifiedBuffer.length}`
+    this.session.shouldTrace(() =>
+      this.session.trace(
+        `json(): status code ${status}, size: ${objectStringifiedBuffer.length}`
+      )
     );
 
     // Writes the response.
@@ -557,8 +591,10 @@ export class HTTPResponse {
             );
 
           // Performs logging.
-          this.httpClientSocket.trace(
-            `file(): body type not specified yet. Choosing regular, since size is known.`
+          this.session.shouldTrace(() =>
+            this.session.trace(
+              `file(): body type not specified yet. Choosing regular, since size is known.`
+            )
           );
 
           // Uses the regular body, with the given length.
@@ -566,8 +602,10 @@ export class HTTPResponse {
         }
 
         // Performs the logging.
-        this.httpClientSocket.trace(
-          `file(): writing file '${filePath}', status code ${status}, size: ${stats.size}, type (MIME): ${httpContentType}`
+        this.session.shouldTrace(() =>
+          this.session.trace(
+            `file(): writing file '${filePath}', status code ${status}, size: ${stats.size}, type (MIME): ${httpContentType}`
+          )
         );
 
         // Writes the response to the client.

@@ -16,7 +16,17 @@
   along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
+import { HTTPSessionLogLevel } from "./HTTPSession";
+
 export enum HTTPTemplateEngine {
   EJS = 'EJS',
   PUG = 'PUG',
+}
+
+export class HTTPSettings {
+  public sessionLogLevel: HTTPSessionLogLevel;
+
+  public constructor() {
+    this.sessionLogLevel = HTTPSessionLogLevel.Error;
+  }
 }

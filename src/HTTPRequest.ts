@@ -17,9 +17,10 @@
 */
 
 import { ByteLengthQueuingStrategy } from "node:stream/web";
-import { EventEmitter } from "stream";
+import { EventEmitter, Writable } from "stream";
 import { HTTPHeaders } from "./HTTPHeaders";
 import { HTTPMethod, isValidHttpMethod } from "./HTTPMethod";
+import { HTTPSession } from "./HTTPSession";
 import { HTTPURI } from "./HTTPURI";
 import { HTTPVersion, isValidHttpVersion } from "./HTTPVersion";
 
@@ -85,13 +86,13 @@ export class HTTPRequestBufferBody extends HTTPRequestBody {
 //  which will start processing the entire buffer, and incomming request data.
 
 export enum HTTPRequestEvent {
-  RequestLineLoaded = "requestLineLoaded",
-  RequestHeadersLoaded = "requestHeadersLoaded",
-  RequestFinishedLoading = "requestFinished",
-  RequestBodyLoaded = "requestBodyLoaded",
+  LineLoaded = "__line",
+  HeadersLoaded = "__headers",
+  Finished = "__finished",
+  BodyLoaded = "__body",
 }
 
-export class HTTPRequest<T = any> extends EventEmitter {
+export class HTTPRequest<T = any> extends Writable {
   protected _state: HTTPRequestState;
   protected _buffer: Buffer | null;
 
@@ -106,7 +107,7 @@ export class HTTPRequest<T = any> extends EventEmitter {
 
   public u: T | null; // The user-data object, can contain anything the user would want.
 
-  public constructor() {
+  public constructor(public readonly session: HTTPSession) {
     super();
 
     this._state = HTTPRequestState.REQUEST;
@@ -134,7 +135,7 @@ export class HTTPRequest<T = any> extends EventEmitter {
     this.headers = null;
     this.body = null;
     this.u = null;
-    
+
     // Calls the update event because we want to process old chunks.
     this.update();
   }
@@ -189,7 +190,9 @@ export class HTTPRequest<T = any> extends EventEmitter {
       this._buffer = null;
     else {
       // Copies the remainder of the internal buffer.
-      const buffer: Buffer = Buffer.alloc(this._buffer.length - separatorIndex - separator.length);
+      const buffer: Buffer = Buffer.alloc(
+        this._buffer.length - separatorIndex - separator.length
+      );
       this._buffer.copy(buffer, 0, separatorIndex + separator.length);
 
       // Overrides the internal buffer.
@@ -249,7 +252,7 @@ export class HTTPRequest<T = any> extends EventEmitter {
 
     // Updates the state, and emits the event.
     this._state = HTTPRequestState.HEADERS;
-    this.emit(HTTPRequestEvent.RequestLineLoaded);
+    this.emit(HTTPRequestEvent.LineLoaded);
 
     // Returns false to continue the loop.
     return false;
@@ -275,11 +278,11 @@ export class HTTPRequest<T = any> extends EventEmitter {
       this._state = HTTPRequestState.FINISHED;
 
       // Emits the event for headers done loading.
-      this.emit(HTTPRequestEvent.RequestHeadersLoaded);
+      this.emit(HTTPRequestEvent.HeadersLoaded);
 
       // Checks if there is an body to be expected, if not finish the request.
       if (this.body === null) {
-        this.emit(HTTPRequestEvent.RequestFinishedLoading);
+        this.emit(HTTPRequestEvent.Finished);
       }
 
       // Returns false to continue.
@@ -324,8 +327,8 @@ export class HTTPRequest<T = any> extends EventEmitter {
       this._state = HTTPRequestState.FINISHED;
 
       // Emits the event indicating the finished loading.
-      this.emit(HTTPRequestEvent.RequestBodyLoaded);
-      this.emit(HTTPRequestEvent.RequestFinishedLoading);
+      this.emit(HTTPRequestEvent.BodyLoaded);
+      this.emit(HTTPRequestEvent.Finished);
     }
 
     // Always returns true since we've processed the entire contents.
@@ -361,20 +364,29 @@ export class HTTPRequest<T = any> extends EventEmitter {
   }
 
   /**
-   * Writes the chunk to the current request.
-   * @param chunk the chunk of memory.
-   * @returns the current instance.
+   * Gets called to write new data to the request.
+   * @param chunk the chunk of data received.
+   * @param encoding the encoding of the chunk.
+   * @param callback the callback to call when we can fetch new data.
    */
-  public write(chunk: Buffer): this {
-    // Concats the buffer or makes it the primary buffer.
+  public _write(
+    chunk: any,
+    encoding: BufferEncoding,
+    callback: (error?: Error | null | undefined) => void
+  ): void {
+    // Makes sure the chunk is a buffer.
+    if (!(chunk instanceof Buffer))
+      throw new Error("Chunk must be a buffer instance!");
+    
+      // Concats the buffer or makes it the primary buffer.
     if (this._buffer === null) this._buffer = chunk;
     else this._buffer = Buffer.concat([this._buffer, chunk]);
 
     // Updates the request.
     this.update();
 
-    // Returns the current instance.
-    return this;
+    // Fetches the next chunk.
+    callback(null);
   }
 
   /**

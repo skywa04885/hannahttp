@@ -26,13 +26,6 @@ import { buffer } from "stream/consumers";
 // (GLOBAL) HTTP Client Socket
 ////////////////////////////////////////////////////
 
-export enum HTTPClientSocketLogLevel {
-  Trace = 0,
-  Info = 1,
-  Warn = 2,
-  Error = 3,
-}
-
 export class HTTPClientSocket {
 
   /**
@@ -65,22 +58,6 @@ export class HTTPClientSocket {
    */
   public destroy(): this {
     this.socket.destroy();
-    return this;
-  }
-
-  public trace(...items: any[]): this {
-    return this.log(HTTPClientSocketLogLevel.Trace, ...items);
-  }
-
-  public log(level: HTTPClientSocketLogLevel, ...items: any[]): this {
-    // Produces the line we'll print.
-    const line: string = `[${this.socket.remoteFamily} ${this.socket.remoteAddress}:${this.socket.remotePort} ${level}] ${items.map((item: any): string => item.toString()).join(' ')}`
-
-    // Prints the line.
-    if (level === HTTPClientSocketLogLevel.Error) console.error(line);
-    else console.log(line);
-
-    // Returns the current instance.
     return this;
   }
 }

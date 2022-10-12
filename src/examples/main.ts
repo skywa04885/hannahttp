@@ -23,6 +23,8 @@ import serveStaticFiles from "../middleware/static";
 import { bodyReader, jsonBodyParser } from "../middleware/body";
 import { simpleLogger } from "../middleware/logging";
 import { useCompression } from "../middleware/compress";
+import { HTTPSettings } from "../HTTPSettings";
+import { HTTPSessionLogLevel } from "../HTTPSession";
 
 // Creates the nested router.
 const httpSimpleNestedRouter: HTTPSimpleRouter = new HTTPSimpleRouter();
@@ -75,6 +77,10 @@ httpSimpleRouter.get("/test/:store_id/:article_id", (match, req, res, next): any
 // Sends a 404 page not found for all remaining matches.
 httpSimpleRouter.any("/*", (match, req, res, next) => res.text("", 404));
 
+// Creates the server settings.
+const settings: HTTPSettings = new HTTPSettings();
+settings.sessionLogLevel = HTTPSessionLogLevel.Trace;
+
 // Creates and listens the server.
-const httpServer: HTTPServerPlain = new HTTPServerPlain(httpSimpleRouter);
+const httpServer: HTTPServerPlain = new HTTPServerPlain(httpSimpleRouter, settings);
 httpServer.listen(8080, "localhost", 10);

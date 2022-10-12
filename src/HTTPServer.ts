@@ -21,11 +21,13 @@ import net from "net";
 import { HTTPClientHandler } from "./HTTPClientHandler";
 import { HTTPRouter } from "./HTTPRouter";
 import { HTTPServerSocket, HTTPServerSocketEvent } from "./HTTPServerSocket";
+import { HTTPSettings } from "./HTTPSettings";
 
 export class HTTPServer {
   public constructor(
     protected readonly _serverSocket: HTTPServerSocket,
-    protected readonly _router: HTTPRouter
+    public readonly router: HTTPRouter,
+    public readonly settings: HTTPSettings
   ) {}
 
   protected _onClientConnected(clientSocket: HTTPClientSocket): void {
@@ -33,18 +35,19 @@ export class HTTPServer {
     clientSocket.socket.on('error', (err: Error): void => {
       console.log(err);
     });
-    HTTPClientHandler.fromHttpClientSocket(clientSocket, this._router);
+    HTTPClientHandler.fromClientAndServer(clientSocket, this);
   }
 }
 
 export class HTTPServerPlain extends HTTPServer {
   /**
    * Constructs a new plain text http server.
-   * @param _router the router to use.
+   * @param router the router to use.
+   * @param settings the settings for the server.
    */
-  public constructor(_router: HTTPRouter) {
+  public constructor(router: HTTPRouter, settings: HTTPSettings) {
     // Calls the super constructor.
-    super(HTTPServerSocket.fromServer(net.createServer()), _router);
+    super(HTTPServerSocket.fromServer(net.createServer()), router, settings);
 
     // Registers the event listeners.
     this._serverSocket.on(

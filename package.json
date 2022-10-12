@@ -1,13 +1,23 @@
 {
-  "name": "llibhttp",
+  "name": "hhttp",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
+  "main": "dist/index.js",
+  "types": "dist/index.ts.d",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "tsc",
+    "prepublish": "npm run build"
   },
   "author": "",
-  "license": "ISC",
+  "license": "GPL-3.0",
+  "files": [
+    "dist/**/**"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/skywa04885/hannahttp"
+  },
+  "homepage": "https://github.com/skywa04885/hannahttp",
   "devDependencies": {
     "@types/node": "^18.8.1"
   }

@@ -54,7 +54,7 @@ export const bodyReader = (
     if (contentLength <= 0) return next();
 
     // Adds an event listener for when the state changed.
-    request.once(HTTPRequestEvent.RequestFinishedLoading, next);
+    request.once(HTTPRequestEvent.Finished, next);
 
     // Starts reading the body.
     request.loadBufferBody(contentLength);
