@@ -28,7 +28,7 @@ export interface ISimpleLoggerOptions {}
  * @param options the options for the logger.
  * @returns the middleware to perform the simple logging.
  */
-export const simpleLogger = (options?: ISimpleLoggerOptions): HTTPRouterCallback => {
+export const useLogging = (options?: ISimpleLoggerOptions): HTTPRouterCallback => {
   return (
     match: HTTPPathMatch,
     request: HTTPRequest,

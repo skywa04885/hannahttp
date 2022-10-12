@@ -5,62 +5,85 @@ HannaHTTP is a work-in-progress simple express.js alternative.
 ## Example
 
 ```ts
-// Creates the nested router.
-const httpSimpleNestedRouter: HTTPSimpleRouter = new HTTPSimpleRouter();
+const {
+  useBodyReader,
+  HTTPServerPlain,
+  HTTPSimpleRouter,
+  HTTPSettings,
+  useJsonBodyParser,
+  useCompression,
+  HTTPSessionLogLevel,
+  useStatic,
+} = require("hannahttp");
+const path = require("path");
 
-// Example of using compression and json in the nested router.
-httpSimpleNestedRouter.get(
-  "/all",
-  useCompression({}),
-  (match, req, res, next) => {
-    res.json({
-      hello: "world",
-    });
-  }
+// Creates the router and the settings.
+const router = new HTTPSimpleRouter();
+const settings = new HTTPSettings();
+
+// By changing the log level in the settings, we can see what happens
+//  in the request (trace shows all details).
+settings.sessionLogLevel = HTTPSessionLogLevel.Trace;
+
+// The request body is not read by default (since the headers aren't handled yet).
+//  so in order to read the request body, this piece of middleware needs to be called.
+router.use(useBodyReader());
+
+// Now in order to actually decode the json body, we need to call this middleware.
+//  this middleware parses the json body, and stores it in req.u.body;
+router.use(useJsonBodyParser());
+
+// Now to compress text-based responses, we can use the compress middleware
+//  which will either use GZIP or Deflate depending on the Accept-Encoding
+//  and the server configuration (as bellow). The match regex can be adjuested
+//  to determine which files will be compressed (since we don't want blobs to be
+//  compressed as this is too expensive).
+router.use(
+  useCompression({
+    match: /(\.html|\.txt|\.css|\.js)$/,
+    useGzip: true,
+    useDeflate: true,
+  })
 );
 
-// Creates the primary router.
-const httpSimpleRouter: HTTPSimpleRouter = new HTTPSimpleRouter();
+// Simple example of a nested router. A nested router can be
+//  used to speed up request handing since less regular expressions
+//  need to be matched, again use a all match (*) so the remainder
+//  can be used by the nested router.
+const nestedRouter = new HTTPSimpleRouter();
 
-// Examples of using middleware that processes parts of the request.
-httpSimpleRouter.use(bodyReader());
-httpSimpleRouter.use(jsonBodyParser());
-
-// Simple file serving.
-httpSimpleRouter.get("/", (match, req, res, next): any => {
-  return res.file(path.join(__dirname, "views", "index.html"));
+nestedRouter.get('/example', (match, req, res, next) => {
+  return res.text('Yes! It works...');
 });
 
-// Example of nested router.
-httpSimpleRouter.get("/api/*", httpSimpleNestedRouter);
+router.get('/nested/*', nestedRouter);
 
-// Example of static file serving with compression.
-httpSimpleRouter.get(
-  "/static/*",
-  useCompression({
-    match: /(\.html|\.js|\.css)$/, // Only compress files that match the expression.
-    useDeflate: true,
-    useGzip: true,
-  }),
-  serveStaticFiles(path.join(__dirname, "static"))
-);
+// Here we serve static files in the given directory (in our case 'static').
+//  remember that we need to define an all match (*) so that the middleware
+//  will get the remainder, and use that as a file path.
+router.get("/static/*", useStatic(path.join(__dirname, "static")));
 
-// Example where parameters are given in the request, each starts with ':'
-//  and are not allowed to start / end with __ (due to system usage).
-httpSimpleRouter.get("/test/:store_id/:article_id", (match, req, res, next): any => {
+// Example of simple response.
+router.get("/", (match, req, res, next) => {
+  return res.text("Hello world!");
+});
+
+// Example showing parameters (starting with :) and the all match (at the end of uri with *).
+//  the match object will contain the parameters, and the remainder (the matched part by *).
+router.get("/:param1/:param2/:param3/*", (match, req, res, next) => {
   return res.json({
-    parameters: match.parameters,
+    match,
   });
 });
 
-// Sends a 404 page not found for all remaining matches.
-httpSimpleRouter.any("/*", (match, req, res, next) => res.text("", 404));
+// Here an all match is used to send a 404 page.
+router.any("/*", (match, req, res, next) => {
+  return res.text(`Page '${match.remainder}' not found!`, 404);
+});
 
-// Creates the server settings.
-const settings: HTTPSettings = new HTTPSettings();
-settings.sessionLogLevel = HTTPSessionLogLevel.Trace;
+// Creates the server and starts listening.
+const server = new HTTPServerPlain(router, settings);
+server.listen(8080, "0.0.0.0", 100);
 
-// Creates and listens the server.
-const httpServer: HTTPServerPlain = new HTTPServerPlain(httpSimpleRouter, settings);
-httpServer.listen(8080, "localhost", 10);
+
 ```

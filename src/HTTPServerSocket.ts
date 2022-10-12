@@ -18,6 +18,7 @@
 
 import { EventEmitter } from "stream";
 import net from "net";
+import util from "util";
 import { HTTPClientSocket } from "./HTTPClientSocket";
 
 export enum HTTPServerSocketEvent {

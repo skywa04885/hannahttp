@@ -16,7 +16,6 @@ import {
   HTTPRouterNextFunction,
   HTTPRouter,
   HTTPSimpleRouterMethod,
-  httpSimpleRouterMethodFromHttpMethod,
 } from "./HTTPRouter";
 import { HTTPVersion } from "./HTTPVersion";
 import { HTTPURI } from "./HTTPURI";
@@ -26,6 +25,10 @@ import { HTTPHeaders } from "./HTTPHeaders";
 import { HTTPEncoding } from "./HTTPEncoding";
 import { HTTPContentType } from "./HTTPContentType";
 import { HTTPEncodingHeader } from "./HTTPEncodingHeader";
+import { useBodyReader, useJsonBodyParser } from "./middleware/body";
+import { useCompression } from "./middleware/compress";
+import { useLogging } from "./middleware/logging";
+import { useStatic } from "./middleware/static";
 
 export {
   HTTPServer,
@@ -49,7 +52,6 @@ export {
   HTTPRouterNextFunction,
   HTTPRouter,
   HTTPSimpleRouterMethod,
-  httpSimpleRouterMethodFromHttpMethod,
   HTTPVersion,
   HTTPURI,
   HTTPHeaderType,
@@ -57,4 +59,9 @@ export {
   HTTPEncoding,
   HTTPContentType,
   HTTPEncodingHeader,
+  useBodyReader,
+  useJsonBodyParser,
+  useCompression,
+  useLogging,
+  useStatic,
 };

@@ -19,9 +19,9 @@
 import { HTTPSimpleRouter } from "../HTTPRouter";
 import { HTTPServerPlain } from "../HTTPServer";
 import path from "path";
-import serveStaticFiles from "../middleware/static";
-import { bodyReader, jsonBodyParser } from "../middleware/body";
-import { simpleLogger } from "../middleware/logging";
+import useStatic from "../middleware/static";
+import { useBodyReader, useJsonBodyParser } from "../middleware/body";
+import { useLogging } from "../middleware/logging";
 import { useCompression } from "../middleware/compress";
 import { HTTPSettings } from "../HTTPSettings";
 import { HTTPSessionLogLevel } from "../HTTPSession";
@@ -44,8 +44,8 @@ httpSimpleNestedRouter.get(
 const httpSimpleRouter: HTTPSimpleRouter = new HTTPSimpleRouter();
 
 // Examples of using middleware that processes parts of the request.
-httpSimpleRouter.use(bodyReader());
-httpSimpleRouter.use(jsonBodyParser());
+httpSimpleRouter.use(useBodyReader());
+httpSimpleRouter.use(useJsonBodyParser());
 
 // Simple file serving.
 httpSimpleRouter.get("/", (match, req, res, next): any => {
@@ -63,7 +63,7 @@ httpSimpleRouter.get(
     useDeflate: true,
     useGzip: true,
   }),
-  serveStaticFiles(path.join(__dirname, "static"))
+  useStatic(path.join(__dirname, "static"))
 );
 
 // Example where parameters are given in the request, each starts with ':'

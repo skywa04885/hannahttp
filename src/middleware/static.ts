@@ -31,7 +31,7 @@ export interface IServeFilesOptions {}
  * @param options the file serving options.
  * @returns the callback that can be run by the router.
  */
-export const serveStaticFiles = (
+export const useStatic = (
   rootPath: string,
   options?: IServeFilesOptions
 ): HTTPRouterCallback => {
@@ -64,4 +64,4 @@ export const serveStaticFiles = (
   };
 };
 
-export default serveStaticFiles;
+export default useStatic;

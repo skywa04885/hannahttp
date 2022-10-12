@@ -35,7 +35,7 @@ interface IBodyReaderOptions {}
  * @param options the options for the body reader.
  * @returns the middleware to read the body into a buffer.
  */
-export const bodyReader = (
+export const useBodyReader = (
   options?: IBodyReaderOptions
 ): HTTPRouterCallback => {
   return (
@@ -68,7 +68,7 @@ interface IJSONBodyparserOptions {}
  * @param options the options for the json body parser.
  * @returns the middleware to parse a json body.
  */
-export const jsonBodyParser = (
+export const useJsonBodyParser = (
   options?: IJSONBodyparserOptions
 ): HTTPRouterCallback => {
   return (
