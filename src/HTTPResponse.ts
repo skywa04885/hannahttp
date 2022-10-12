@@ -393,6 +393,10 @@ export class HTTPResponse {
         return HTTPContentType.TextPlain;
       case ".jpg":
         return HTTPContentType.ImageJPEG;
+      case ".css":
+        return HTTPContentType.TextCSS;
+      case ".js":
+        return HTTPContentType.TextJavascript;
       default:
         return HTTPContentType.OctetStream;
     }

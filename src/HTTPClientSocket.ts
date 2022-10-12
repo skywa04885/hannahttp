@@ -73,11 +73,8 @@ export class HTTPClientSocket {
   }
 
   public log(level: HTTPClientSocketLogLevel, ...items: any[]): this {
-    // Gets the address.
-    const address: net.AddressInfo = this.socket.address() as net.AddressInfo;
-    
     // Produces the line we'll print.
-    const line: string = `[${address.family} ${address.address}:${address.port} ${level}] ${items.map((item: any): string => item.toString()).join(' ')}`
+    const line: string = `[${this.socket.remoteFamily} ${this.socket.remoteAddress}:${this.socket.remotePort} ${level}] ${items.map((item: any): string => item.toString()).join(' ')}`
 
     // Prints the line.
     if (level === HTTPClientSocketLogLevel.Error) console.error(line);

@@ -23,4 +23,6 @@ export enum HTTPContentType {
   OctetStream = "application/octet-stream",
   ImageJPEG = "image/jpeg",
   ApplicationXWWWFormUrlencoded = "application/x-www-form-urlencoded",
+  TextJavascript = "text/javascript",
+  TextCSS = "text/css",
 }
