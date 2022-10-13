@@ -607,6 +607,9 @@ export class HTTPResponse {
       )
     );
 
+    // Sets the content type header.
+    this.header(HTTPHeaderType.ContentType, contentType);
+
     // Sends the response.
     this
       .status(status)
