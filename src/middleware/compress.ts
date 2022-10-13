@@ -94,16 +94,12 @@ export const useCompression = (
         )
       );
 
-      // Compresses the response body.
-      const transferEncoding: HTTPEncodingHeader = new HTTPEncodingHeader([
-        HTTPEncoding.DEFLATE,
-        HTTPEncoding.Chunked,
-      ]);
-      response
-        .useChunkedBody()
-        .header(HTTPHeaderType.TransferEncoding, transferEncoding.encode())
-        .header(HTTPHeaderType.ContentEncoding, HTTPEncoding.DEFLATE)
-        .addBodyTransform(zlib.createDeflate());
+      // Adds the transfer encoding and content encoding.
+      response.addTransferEncoding(HTTPEncoding.DEFLATE);
+      response.addContentEncoding(HTTPEncoding.DEFLATE);
+
+      // Adds the transformation stream.
+      response.addBodyTransform(zlib.createDeflate());
     } else if (
       acceptEncodingHeader.contains(HTTPEncoding.GZIP) &&
       options!.useGzip
@@ -115,16 +111,12 @@ export const useCompression = (
         )
       );
 
-      // Compresses the response body.
-      const transferEncoding: HTTPEncodingHeader = new HTTPEncodingHeader([
-        HTTPEncoding.GZIP,
-        HTTPEncoding.Chunked,
-      ]);
-      response
-        .useChunkedBody()
-        .header(HTTPHeaderType.TransferEncoding, transferEncoding.encode())
-        .header(HTTPHeaderType.ContentEncoding, HTTPEncoding.GZIP)
-        .addBodyTransform(zlib.createGzip());
+      // Adds the transfer encoding and content encoding.
+      response.addTransferEncoding(HTTPEncoding.GZIP);
+      response.addContentEncoding(HTTPEncoding.GZIP);
+
+      // Adds the transformation stream.
+      response.addBodyTransform(zlib.createGzip());
     }
 
     // Continues to the next handler.

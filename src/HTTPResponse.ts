@@ -16,15 +16,15 @@
   along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-import fs, { createWriteStream, read, ReadStream, WriteStream } from "fs";
+import fs from "fs";
 import path from "path";
 import { HTTPContentType } from "./HTTPContentType";
 import { HTTPHeaderType } from "./HTTPHeaderType";
-import { HTTPClientSocket } from "./HTTPClientSocket";
 import { HTTPVersion } from "./HTTPVersion";
-import { EventEmitter, Stream, Transform, Writable } from "stream";
-import { HTTPServerSocket } from "./HTTPServerSocket";
+import { Readable, Transform, Writable } from "stream";
 import { HTTPSession } from "./HTTPSession";
+import { HTTPEncodingHeader } from "./HTTPEncodingHeader";
+import { HTTPEncoding } from "./HTTPEncoding";
 
 export enum HTTPResponseState {
   WritingResponseLine = 0,
@@ -40,21 +40,23 @@ export enum HTTPResponseBodyType {
 }
 
 export class HTTPResponse {
-  protected _state: HTTPResponseState;
-  protected _enqueuedHeaders: [string, string][] | null;
-  protected _responseBodyType: HTTPResponseBodyType | null = null;
+  protected _state: HTTPResponseState = HTTPResponseState.WritingResponseLine;
   protected _bodyWritable: Writable | null = null;
 
+  protected _bodySize: number | null = null;
+  protected _enqueuedHeaders: [string, string][] | null = null;
+  protected _bodyTransforms: Transform[] | null = null;
+
+  protected _transferEncoding: HTTPEncodingHeader | null = null;
+  protected _contentEncoding: HTTPEncodingHeader | null = null;
+
+  protected _sentStatus: number | null = null;
+
   public constructor(
-    public readonly httpVersion: HTTPVersion,
+    public readonly version: HTTPVersion,
     public readonly session: HTTPSession,
     public readonly finishedCallback: () => void
-  ) {
-    this._state = HTTPResponseState.WritingResponseLine;
-    this._enqueuedHeaders = null;
-    this._responseBodyType = null;
-    this._bodyWritable = null;
-  }
+  ) {}
 
   /**
    * Resets the response (for multiple request on a single socket).
@@ -66,9 +68,92 @@ export class HTTPResponse {
       throw new Error("Cannot reset non-finished response!");
 
     this._state = HTTPResponseState.WritingResponseLine;
-    this._enqueuedHeaders = null;
-    this._responseBodyType = null;
     this._bodyWritable = null;
+
+    this._bodySize = null;
+    this._enqueuedHeaders = null;
+    this._bodyTransforms = null;
+
+    this._contentEncoding = null;
+    this._transferEncoding = null;
+
+    this._sentStatus = null;
+
+    // Returns the current instance.
+    return this;
+  }
+
+  //////////////////////////////////////////////////
+  // Getters
+  //////////////////////////////////////////////////
+
+  /**
+   * If the current response has enqueued headers.
+   */
+  public get hasEnqueuedHeaders(): boolean {
+    return this._enqueuedHeaders !== null;
+  }
+
+  /**
+   * If the current response has body transforms.
+   */
+  public get hasBodyTransforms(): boolean {
+    return this._bodyTransforms !== null;
+  }
+
+  /**
+   * Gets the sent status code.
+   */
+  public get sentStatus(): number {
+    if (this._sentStatus === null)
+      throw new Error('this._sentStatus is null!');
+
+    return this._sentStatus;
+  }
+
+  //////////////////////////////////////////////////
+  // Setters
+  //////////////////////////////////////////////////
+
+  /**
+   * Sets the body size. This will be used to determine
+   *  how we'll handle the response.
+   */
+  public set bodySize(bodySize: number) {
+    this._bodySize = bodySize;
+  }
+
+  //////////////////////////////////////////////////
+  // Instance Methods
+  //////////////////////////////////////////////////
+
+  /**
+   * Adds a new transfer encoding.
+   * @param encoding the encoding to add.
+   * @returns the current instance.
+   */
+  public addTransferEncoding(encoding: HTTPEncoding): this {
+    // Creates the encoding header if not there.
+    this._transferEncoding = this._transferEncoding ?? new HTTPEncodingHeader([]);
+
+    // Pushes the encoding.t
+    this._transferEncoding.encodings.push(encoding);
+
+    // Returns the current instance.
+    return this;
+  }
+
+  /**
+   * Adds a content encoding.
+   * @param encoding the content encoding to add.
+   * @returns the current instance.
+   */
+  public addContentEncoding(encoding: HTTPEncoding): this {
+    // Creates the encoding header if not there.
+    this._contentEncoding = this._contentEncoding ?? new HTTPEncodingHeader([]);
+
+    // Pushes the encoding.t
+    this._contentEncoding.encodings.push(encoding);
 
     // Returns the current instance.
     return this;
@@ -80,33 +165,21 @@ export class HTTPResponse {
    * @returns the current instance.
    */
   public addBodyTransform(transform: Transform): this {
-    // Checks if we're in the appropriate state.
     if (
-      this._state !== HTTPResponseState.WritingResponseHeaders &&
-      this._state !== HTTPResponseState.WritingResponseLine
+      ![
+        HTTPResponseState.WritingResponseLine,
+        HTTPResponseState.WritingResponseHeaders,
+      ].includes(this._state)
     )
       throw new Error(
-        "Cannot set body transformer when in other state than headers or response line."
+        `addBodyTransform(): not allowed in state ${this._state}`
       );
 
-    // Checks if the content encoding type is buffer, if not, throw an error (required to prevent mess-ups).
-    if (this._responseBodyType !== HTTPResponseBodyType.Chunked)
-      throw new Error(
-        "Cannot transform body when the content type is not chunked."
-      );
+    // Initializes the body transforms.
+    if (this._bodyTransforms === null) this._bodyTransforms = [];
 
-    // Performs some logging.
-    this.session.shouldTrace(() =>
-      this.session.trace(
-        `Adding body transform, this is probably meant for compression.`
-      )
-    );
-
-    // Adds the stream.
-    transform.pipe(this._bodyWritable!, {
-      end: this._bodyWritable === this.session.client.socket ? false : true,
-    });
-    this._bodyWritable = transform;
+    // Pushes the transform
+    this._bodyTransforms.push(transform);
 
     // Returns the current instance.
     return this;
@@ -123,11 +196,14 @@ export class HTTPResponse {
     if (this._state !== HTTPResponseState.WritingResponseLine)
       throw new Error("Response status has already been sent!");
 
+    // Sets the internal status.
+    this._sentStatus = code;
+
     // If the message has not been given, get one of the default ones.
     if (message === null) message = HTTPResponse._getMessageForStatusCode(code);
 
     // Constructs the response line, then gets the buffer version..
-    const responseLineString: string = `${this.httpVersion} ${code} ${message}\r\n`;
+    const responseLineString: string = `${this.version} ${code} ${message}\r\n`;
     const responseLineBuffer: Buffer = Buffer.from(responseLineString, "utf-8");
 
     // Writes the data to the http socket.
@@ -145,12 +221,18 @@ export class HTTPResponse {
 
   /**
    * Writes all the default headers.
-   * @returns the current instance.
    */
-  public defaultHeaders(): this {
-    return this.header(HTTPHeaderType.Date, new Date().toUTCString())
+  protected _defaultHeaders(): void {
+    // Sends the truely default headers.
+    this.header(HTTPHeaderType.Date, new Date().toUTCString())
       .header(HTTPHeaderType.Server, "HannaHTTP")
       .header(HTTPHeaderType.Connection, "keep-alive");
+
+    // Adds all the encoding headers.
+    if (this._contentEncoding !== null)
+      this.header(HTTPHeaderType.ContentEncoding, this._contentEncoding.encode());
+    if (this._transferEncoding !== null)
+      this.header(HTTPHeaderType.TransferEncoding, this._transferEncoding.encode());
   }
 
   /**
@@ -179,147 +261,6 @@ export class HTTPResponse {
     this.session.client.socket.write(headerStringBuffer);
 
     // Returns the instance.
-    return this;
-  }
-
-  /**
-   * Tells the response we'll be sending a chunking response.
-   * @returns the current instance.
-   */
-  public useChunkedBody(): this {
-    // Makes sure the type is not set yet.
-    if (this._responseBodyType !== null)
-      throw new Error(
-        `Response body type already set to: ${this._responseBodyType}`
-      );
-
-    // Makes sure we are in the proper state to determine the response type.
-    if (
-      this._state !== HTTPResponseState.WritingResponseHeaders &&
-      this._state !== HTTPResponseState.WritingResponseLine
-    )
-      throw new Error(
-        `Cannot begin writing chunked body in state: ${this._state}`
-      );
-
-    // Sets the response body type.
-    this._responseBodyType = HTTPResponseBodyType.Chunked;
-
-    // Sets the stream to write to.
-    this._bodyWritable = new Writable({
-      final: (callback: (error: Error | null | undefined) => void) => {
-        // Performs some logging.
-        this.session.shouldTrace(() =>
-          this.session.trace(
-            `Chunked body has finished writing, sending final zero chunk.`
-          )
-        );
-
-        // Writes the final zero chunk.
-        this.session.client.socket.write(Buffer.from("0\r\n\r\n", "utf-8"));
-
-        // Calls the finished callback.
-        this.finishedCallback();
-
-        // Finishes the stream.
-        callback(null);
-      },
-      write: (
-        buffer: Buffer,
-        encoding: BufferEncoding,
-        callback: (error: Error | null | undefined) => void
-      ) => {
-        // Performs some logging.
-        this.session.shouldTrace(() =>
-          this.session.trace(
-            `Chunked body writing chunk of size ${buffer.length}.`
-          )
-        );
-
-        // Creates the line that contains the length and the chunk.
-        const lengthLineBuffer: Buffer = Buffer.from(
-          `${buffer.length.toString(16)}\r\n`,
-          "utf-8"
-        );
-
-        // Writes the length line buffer and the buffer to the client.
-        this.session.client.socket.write(lengthLineBuffer);
-        this.session.client.socket.write(buffer);
-        this.session.client.socket.write(Buffer.from("\r\n", "utf-8"));
-
-        // Waits for the socket to drain before writing the next chunk.
-        if (this.session.client.socket.writableNeedDrain)
-          this.session.client.socket.once("drain", () => callback(null));
-        else callback(null);
-      },
-    });
-
-    // Returns the current instance.
-    return this;
-  }
-
-  /**
-   * Tells the response we'll be using a regular response.
-   * @param contentLength the length of the content about to be sent.
-   * @returns the current instance.
-   */
-  public useRegularBody(contentLength: number): this {
-    // Makes sure the type is not set yet.
-    if (this._responseBodyType !== null)
-      throw new Error(
-        `Response body type already set to: ${this._responseBodyType}`
-      );
-
-    // Makes sure we are in the proper state to determine the response type.
-    if (
-      this._state !== HTTPResponseState.WritingResponseHeaders &&
-      this._state !== HTTPResponseState.WritingResponseLine
-    )
-      throw new Error(
-        `Cannot begin writing regular body in state: ${this._state}`
-      );
-
-    // Sets the header for the content length.
-    this.header(HTTPHeaderType.ContentLength, contentLength.toString());
-
-    // Sets the response body type.
-    this._responseBodyType = HTTPResponseBodyType.Regular;
-
-    // Sets the body writable.
-    this._bodyWritable = new Writable({
-      final: (callback: (error: Error | null | undefined) => void) => {
-        // Performs some logging.
-        this.session.shouldTrace(() =>
-          this.session.trace(`Regular body has finished writing.`)
-        );
-
-        // Calls the finished callback.
-        this.finishedCallback();
-
-        // Finishes the stream.
-        callback(null);
-      },
-      write: (
-        buffer: Buffer,
-        encoding: BufferEncoding,
-        callback: (error: Error | null | undefined) => void
-      ) => {
-        // Performs some logging.
-        this.session.shouldTrace(() =>
-          this.session.trace(`Regular body writing ${buffer.length} bytes.`)
-        );
-
-        // Writes the chunk.
-        this.session.client.socket.write(buffer);
-
-        // Waits for the socket to drain before writing the next chunk.
-        if (this.session.client.socket.writableNeedDrain) {
-          this.session.client.socket.once("drain", () => callback(null));
-        } else callback(null);
-      },
-    });
-
-    // Returns the current instance.
     return this;
   }
 
@@ -370,17 +311,17 @@ export class HTTPResponse {
   }
 
   /**
-   * Gets called after the final header has been written.
-   * @returns the current instance.
+   * Gets called when the response is about to get finished, or we'll start transmitting the body.
+   *  basically after the final header has been written.
    */
-  public endHeaders(): this {
+  protected _endHeaders(): void {
     // Makes sure we're in the correct state.
     if (this._state !== HTTPResponseState.WritingResponseHeaders)
       throw new Error(`Cannot finish headers in state: ${this._state}`);
 
     // Performs some logging.
     this.session.shouldTrace(() =>
-      this.session.trace(`endHeaders(): headers have been written.`)
+      this.session.trace(`_endHeaders(): headers have been written.`)
     );
 
     // Writes the newline to indicate the end of the headers.
@@ -389,6 +330,197 @@ export class HTTPResponse {
 
     // Updates the state.
     this._state = HTTPResponseState.WritingResponseBody;
+  }
+
+  /**
+   * Checks how we will process the respond. This will depend uppon the previously
+   *  given data. If the response length we will send is known, and there will be
+   *  no transformation, then we'll decide to use a fixed-length body, otherwise
+   *  we'll use the chunking body.
+   * @returns if we should use chunking or not.
+   */
+  protected _shouldUseChunking(): boolean {
+    // If the body size is null, just use chuking.
+    if (this._bodySize === null) return true;
+
+    // If the body size is known, but there are transform streams
+    //  enqueued then we'll go for chunking.
+    if (this.hasBodyTransforms) return true;
+
+    // Since no data will be transformed, and the size is known
+    //  use regular body.
+    return false;
+  }
+
+  /**
+   * Starts writing the body.
+   */
+  protected _startBody() {
+    // Performs some logging.
+    this.session.shouldTrace(() =>
+      this.session.trace(
+        `_startBody(): determining 'Transfer-Encoding' and preparing data streams.`
+      )
+    );
+
+    // Checks if we should use chunking.
+    const shouldUseChunking: boolean = this._shouldUseChunking();
+
+    // Writes the final headers depending on if we're going to use chunking or not.
+    ////
+
+    // If we're going to use chunking, modify these headers.
+    //  else set the content length header.
+    if (shouldUseChunking === true) {
+      // Performs some logging.
+      this.session.shouldTrace(() =>
+        this.session.trace(
+          `_startBody(): writing chunked response, due to absence of size or presence of transform streams.`
+        )
+      );
+
+      // Adds the content transfer chunked encoding.
+      this.addTransferEncoding(HTTPEncoding.Chunked);
+    } else {
+      // Makes sure the body size is there.
+      if (this._bodySize === null)
+        throw new Error(
+          "this._bodySize is null, cannot add content length header."
+        );
+
+      // Performs some logging.
+      this.session.shouldTrace(() =>
+        this.session.trace(
+          `_startBody(): writing regular response with known size of ${this._bodySize}.`
+        )
+      );
+
+      // Sets the header.
+      this.header(HTTPHeaderType.ContentLength, this._bodySize.toString());
+    }
+
+    // Writes the default headers.
+    this._defaultHeaders();
+
+    // Ends the headers before we start the body.
+    this._endHeaders();
+
+    // Prepares the streams.
+    ////
+
+    // If we're going to use chunking put a final transform stream between the socket and the body
+    //  that's about to be written to encode it as chunks. Else just set the socket as the writable.
+    if (shouldUseChunking) {
+      // Creates the transform stream.
+      this._bodyWritable = new Transform({
+        final: (callback: (error: Error | null | undefined) => void) => {
+          // Performs some logging.
+          this.session.shouldTrace(() =>
+            this.session.trace(
+              `Chunked body has finished writing, sending final zero chunk.`
+            )
+          );
+
+          // Writes the final zero chunk.
+          this.session.client.socket.write(Buffer.from("0\r\n\r\n", "utf-8"));
+
+          // Calls the finished callback.
+          this.finishedCallback();
+
+          // Finishes the stream.
+          callback(null);
+        },
+        transform: (
+          buffer: Buffer,
+          encoding: BufferEncoding,
+          callback: (error: Error | null | undefined, data: any) => void
+        ) => {
+          // Performs some logging.
+          this.session.shouldTrace(() =>
+            this.session.trace(
+              `Chunked body writing chunk of size ${buffer.length}.`
+            )
+          );
+
+          // Creates the line that contains the length and the chunk.
+          const lengthLineBuffer: Buffer = Buffer.from(
+            `${buffer.length.toString(16)}\r\n`,
+            "utf-8"
+          );
+
+          // Calls the callback with the new data.
+          callback(
+            null,
+            Buffer.concat([
+              lengthLineBuffer,
+              buffer,
+              Buffer.from("\r\n", "utf-8"),
+            ])
+          );
+        },
+      });
+
+      // Pipes the transform stream to the socket (ignore end).
+      this._bodyWritable.pipe(this.session.client.socket, {
+        end: false,
+      });
+    } else this._bodyWritable = this.session.client.socket;
+
+    // Checks if we're dealing with body transforms.
+    if (this.hasBodyTransforms) {
+      // Pipes all the body transforms to another. Each newer added one
+      //  will pass through the previously added stream.
+      for (let i: number = this._bodyTransforms!.length - 1; i > 0; i--) {
+        const pipeTo: Transform = this._bodyTransforms![i - 1];
+        const pipeFrom: Transform = this._bodyTransforms![i];
+        pipeFrom.pipe(pipeTo);
+      }
+
+      // Pipes the oldest stream stream to the current body writable.
+      this._bodyTransforms![0].pipe(this._bodyWritable);
+
+      // makes the newest stream the input writable.
+      this._bodyWritable =
+        this._bodyTransforms![this._bodyTransforms!.length - 1];
+    }
+
+    // Finishes off.
+    ////
+
+    // Changes the state.
+    this._state = HTTPResponseState.WritingResponseBody;
+  }
+
+  /**
+   * Writes a buffer as response body.
+   * @param buffer the buffer to write as response.
+   * @returns the current instance.
+   */
+  public sendBufferedBody(buffer: Buffer): this {
+    // Sets the known size, since the size of the buffer is known.
+    this.bodySize = buffer.length;
+
+    // Starts the body writing.
+    this._startBody();
+
+    // Creates a readable from the buffer, and pipes it to the body writable.
+    Readable.from(buffer).pipe(this._bodyWritable!);
+
+    // Returns the current instance.
+    return this;
+  }
+
+  /**
+   * Sends a streamed body.
+   * @param readable the readable to pipe to the body writable.
+   * @returns the current instance.
+   */
+  public sendStreamedBody(readable: Readable): this {
+    // Starts the body writing.
+    this._startBody();
+
+    // Pipes the readable to the body writable.
+    readable.pipe(this._bodyWritable!);
 
     // Returns the current instance.
     return this;
@@ -467,6 +599,23 @@ export class HTTPResponse {
   // Instance Methods (Simple Responses)
   //////////////////////////////////////////////////
 
+  public buffer(buffer: Buffer, status: number = 200, contentType: HTTPContentType = HTTPContentType.TextPlain): this {
+    // Performs some logging.
+    this.session.shouldTrace(() =>
+      this.session.trace(
+        `buffer(): status code ${status}, size: ${buffer.length}, contentType: '${contentType}'`
+      )
+    );
+
+    // Sends the response.
+    this
+      .status(status)
+      .sendBufferedBody(buffer);
+
+    // Returns the current instance.
+    return this;
+  }
+
   /**
    * Writes an text response.
    * @param text the text to write.
@@ -475,43 +624,24 @@ export class HTTPResponse {
    */
   public text(text: string, status: number = 200): this {
     // Stringifies the object, and creates the buffer version.
-    const textBuffer: Buffer = Buffer.from(text, "utf-8");
+    const buffer: Buffer = Buffer.from(text, "utf-8");
 
-    // If the body type is not equal to chunking, use the regular body, and throw an error if it is none.
-    if (this._responseBodyType !== HTTPResponseBodyType.Chunked) {
-      if (this._responseBodyType === HTTPResponseBodyType.None)
-        throw new Error(
-          "Cannot send text response when body type is set to none."
-        );
+    // Writes the buffer to the client.
+    return this.buffer(buffer, status, HTTPContentType.TextPlain);
+  }
 
-      // Performs logging.
-      this.session.shouldTrace(() =>
-        this.session.trace(
-          `text(): body type not specified yet. Choosing regular, since size is known.`
-        )
-      );
+  /**
+   * Writes an html response.
+   * @param text the html to write.
+   * @param status the status code.
+   * @returns the current instance.
+   */
+  public html(text: string, status: number = 200): this {
+    // Stringifies the object, and creates the buffer version.
+    const buffer: Buffer = Buffer.from(text, "utf-8");
 
-      // Uses the regular body, with the given length.
-      this.useRegularBody(textBuffer.length);
-    }
-
-    // Performs the logging.
-    this.session.shouldTrace(() =>
-      this.session.trace(
-        `text(): status code ${status}, size: ${textBuffer.length}`
-      )
-    );
-
-    // Writes the response.
-    this.status(status) // Writes the status line.
-      .defaultHeaders() // Writes the default headers.
-      .header(HTTPHeaderType.ContentType, HTTPContentType.TextPlain) // Writes teh content type header.
-      .endHeaders() // Ends the headers.
-      .writeBody(textBuffer) // Writes the body.
-      .endBody(); // Ends the body.
-
-    // Returns the current instance.
-    return this;
+    // Writes the buffer to the client.
+    return this.buffer(buffer, status, HTTPContentType.TextHTML);
   }
 
   /**
@@ -521,47 +651,14 @@ export class HTTPResponse {
    */
   public json(object: any, status: number = 200): this {
     // Stringifies the object, and creates the buffer version.
-    const objectStringified: string = JSON.stringify(object);
-    const objectStringifiedBuffer: Buffer = Buffer.from(
-      objectStringified,
+    const stringified: string = JSON.stringify(object);
+    const buffer: Buffer = Buffer.from(
+      stringified,
       "utf-8"
     );
 
-    // If the body type is not equal to chunking, use the regular body, and throw an error if it is none.
-    if (this._responseBodyType !== HTTPResponseBodyType.Chunked) {
-      if (this._responseBodyType === HTTPResponseBodyType.None)
-        throw new Error(
-          "Cannot send json response when body type is set to none."
-        );
-
-      // Performs logging.
-      this.session.shouldTrace(() =>
-        this.session.trace(
-          `json(): body type not specified yet. Choosing regular, since size is known.`
-        )
-      );
-
-      // Uses the regular body, with the given length.
-      this.useRegularBody(objectStringifiedBuffer.length);
-    }
-
-    // Performs the logging.
-    this.session.shouldTrace(() =>
-      this.session.trace(
-        `json(): status code ${status}, size: ${objectStringifiedBuffer.length}`
-      )
-    );
-
-    // Writes the response.
-    this.status(status) // writes the status line.
-      .defaultHeaders() // Writes the default headers.
-      .header(HTTPHeaderType.ContentType, HTTPContentType.ApplicationJson) // Writes the content type header.
-      .endHeaders() // Ends the headers.
-      .writeBody(objectStringifiedBuffer) // Writes the body.
-      .endBody(); // Ends the body.
-
-    // Returns the current instance.
-    return this;
+    // Writes the buffer to the client.
+    return this.buffer(buffer, status, HTTPContentType.ApplicationJson);
   }
 
   /**
@@ -583,40 +680,19 @@ export class HTTPResponse {
         const httpContentType: HTTPContentType =
           HTTPResponse._httpContentTypeFromFileExtension(fileExtension);
 
-        // If the body type is not equal to chunking, use the regular body, and throw an error if it is none.
-        if (this._responseBodyType !== HTTPResponseBodyType.Chunked) {
-          if (this._responseBodyType === HTTPResponseBodyType.None)
-            throw new Error(
-              "Cannot send json response when body type is set to none."
-            );
-
-          // Performs logging.
-          this.session.shouldTrace(() =>
-            this.session.trace(
-              `file(): body type not specified yet. Choosing regular, since size is known.`
-            )
-          );
-
-          // Uses the regular body, with the given length.
-          this.useRegularBody(stats.size);
-        }
-
         // Performs the logging.
         this.session.shouldTrace(() =>
           this.session.trace(
             `file(): writing file '${filePath}', status code ${status}, size: ${stats.size}, type (MIME): ${httpContentType}`
           )
         );
+        // Creates the read stream.
+        const readStream: fs.ReadStream = fs.createReadStream(filePath);
 
         // Writes the response to the client.
         this.status(status) // Writes the status.
-          .defaultHeaders() // Adds the default headers.
           .header(HTTPHeaderType.ContentType, httpContentType) // Sets the content type.
-          .endHeaders(); // Finishes the headers.
-
-        // Creates the read stream.
-        const readStream: fs.ReadStream = fs.createReadStream(filePath);
-        readStream.pipe(this._bodyWritable!);
+          .sendStreamedBody(readStream); // Sends the response body.
       }
     );
 

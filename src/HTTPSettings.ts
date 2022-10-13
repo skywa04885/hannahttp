@@ -25,8 +25,10 @@ export enum HTTPTemplateEngine {
 
 export class HTTPSettings {
   public sessionLogLevel: HTTPSessionLogLevel;
+  public templateEngine: HTTPTemplateEngine | null;
 
   public constructor() {
     this.sessionLogLevel = HTTPSessionLogLevel.Error;
+    this.templateEngine = null;
   }
 }

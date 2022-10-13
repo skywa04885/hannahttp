@@ -25,6 +25,7 @@ import { useLogging } from "../middleware/logging";
 import { useCompression } from "../middleware/compress";
 import { HTTPSettings } from "../HTTPSettings";
 import { HTTPSessionLogLevel } from "../HTTPSession";
+import { useCache } from "../middleware/cache";
 
 // Creates the nested router.
 const httpSimpleNestedRouter: HTTPSimpleRouter = new HTTPSimpleRouter();
@@ -32,7 +33,6 @@ const httpSimpleNestedRouter: HTTPSimpleRouter = new HTTPSimpleRouter();
 // Example of using compression and json in the nested router.
 httpSimpleNestedRouter.get(
   "/all",
-  useCompression({}),
   (match, req, res, next) => {
     res.json({
       hello: "world",
@@ -58,8 +58,11 @@ httpSimpleRouter.get("/api/*", httpSimpleNestedRouter);
 // Example of static file serving with compression.
 httpSimpleRouter.get(
   "/static/*",
+  useCache({
+    ttl: 60000,
+  }),
   useCompression({
-    match: /(\.html|\.js|\.css)$/, // Only compress files that match the expression.
+    match: /(\.html|\.js|\.css|\.jpg)$/, // Only compress files that match the expression.
     useDeflate: true,
     useGzip: true,
   }),
@@ -79,7 +82,7 @@ httpSimpleRouter.any("/*", (match, req, res, next) => res.text("", 404));
 
 // Creates the server settings.
 const settings: HTTPSettings = new HTTPSettings();
-settings.sessionLogLevel = HTTPSessionLogLevel.Trace;
+// settings.sessionLogLevel = HTTPSessionLogLevel.Trace;
 
 // Creates and listens the server.
 const httpServer: HTTPServerPlain = new HTTPServerPlain(httpSimpleRouter, settings);
