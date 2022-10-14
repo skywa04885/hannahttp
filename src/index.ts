@@ -29,6 +29,11 @@ import { useBodyReader, useJsonBodyParser } from "./middleware/body";
 import { useCompression } from "./middleware/compress";
 import { useLogging } from "./middleware/logging";
 import { useStatic } from "./middleware/static";
+import {
+  useCookies,
+  IUseCookiesBody,
+  IUseCookiesOptions,
+} from "./middleware/cookies";
 
 export {
   HTTPServer,
@@ -64,4 +69,7 @@ export {
   useCompression,
   useLogging,
   useStatic,
+  useCookies,
+  IUseCookiesBody,
+  IUseCookiesOptions,
 };

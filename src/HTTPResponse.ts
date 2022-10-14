@@ -18,6 +18,7 @@
 
 import fs from "fs";
 import path from "path";
+import consolidate from "consolidate";
 import { HTTPContentType } from "./HTTPContentType";
 import { HTTPHeaderType } from "./HTTPHeaderType";
 import { HTTPVersion } from "./HTTPVersion";
@@ -37,6 +38,21 @@ export enum HTTPResponseBodyType {
   None = 0,
   Regular = 1,
   Chunked = 2,
+}
+
+export enum HTTPResponseCookieSameSite {
+  Strict = 'Strict',
+  Lax = 'Lax',
+  None = 'None',
+}
+
+export interface IHTTPResponseCookieOptions {
+  expires?: Date;
+  secure?: boolean;
+  httpOnly?: boolean;
+  domain?: string;
+  path?: string;
+  sameSite?: HTTPResponseCookieSameSite;
 }
 
 export class HTTPResponse {
@@ -105,8 +121,7 @@ export class HTTPResponse {
    * Gets the sent status code.
    */
   public get sentStatus(): number {
-    if (this._sentStatus === null)
-      throw new Error('this._sentStatus is null!');
+    if (this._sentStatus === null) throw new Error("this._sentStatus is null!");
 
     return this._sentStatus;
   }
@@ -134,7 +149,8 @@ export class HTTPResponse {
    */
   public addTransferEncoding(encoding: HTTPEncoding): this {
     // Creates the encoding header if not there.
-    this._transferEncoding = this._transferEncoding ?? new HTTPEncodingHeader([]);
+    this._transferEncoding =
+      this._transferEncoding ?? new HTTPEncodingHeader([]);
 
     // Pushes the encoding.t
     this._transferEncoding.encodings.push(encoding);
@@ -230,9 +246,15 @@ export class HTTPResponse {
 
     // Adds all the encoding headers.
     if (this._contentEncoding !== null)
-      this.header(HTTPHeaderType.ContentEncoding, this._contentEncoding.encode());
+      this.header(
+        HTTPHeaderType.ContentEncoding,
+        this._contentEncoding.encode()
+      );
     if (this._transferEncoding !== null)
-      this.header(HTTPHeaderType.TransferEncoding, this._transferEncoding.encode());
+      this.header(
+        HTTPHeaderType.TransferEncoding,
+        this._transferEncoding.encode()
+      );
   }
 
   /**
@@ -261,6 +283,46 @@ export class HTTPResponse {
     this.session.client.socket.write(headerStringBuffer);
 
     // Returns the instance.
+    return this;
+  }
+
+  /**
+   * Sets a cookie.
+   * @param name the name of the cookie.
+   * @param value the value of the cookie.
+   * @param options the options for the cookie.
+   * @returns the current instance.
+   */
+  public cookie(name: string, value: string, options?: IHTTPResponseCookieOptions): this {
+    // Initializes the map with the key/ value pair.
+    let obj: {[key: string]: string | null} = {
+      [name]: encodeURIComponent(value),
+    };
+
+    // Adds all the options to the map.
+    if (options?.domain)
+      obj['Domain'] = options.domain;
+    if (options?.path)
+      obj['Path'] = options.path;
+    if (options?.expires)
+      obj['Expires'] = options.expires.toUTCString();
+    if (options?.httpOnly)
+      obj['HttpOnly'] = null;
+    if (options?.secure)
+      obj['Secure'] = null;
+    if (options?.sameSite)
+      obj['SameSite'] = options.sameSite as string;
+
+    // Constructs the header value.
+    const headerValue: string = Object.entries(obj).map(([key, value]: [string, string | null]): string => {
+      if (value === null) return key;
+      else return `${key}=${value}`;
+    }).join('; ');
+
+    // Writes the header.
+    this.header(HTTPHeaderType.SetCookie, headerValue);
+
+    // Returns the current instance.
     return this;
   }
 
@@ -599,7 +661,11 @@ export class HTTPResponse {
   // Instance Methods (Simple Responses)
   //////////////////////////////////////////////////
 
-  public buffer(buffer: Buffer, status: number = 200, contentType: HTTPContentType = HTTPContentType.TextPlain): this {
+  public buffer(
+    buffer: Buffer,
+    status: number = 200,
+    contentType: HTTPContentType = HTTPContentType.TextPlain
+  ): this {
     // Performs some logging.
     this.session.shouldTrace(() =>
       this.session.trace(
@@ -611,9 +677,7 @@ export class HTTPResponse {
     this.header(HTTPHeaderType.ContentType, contentType);
 
     // Sends the response.
-    this
-      .status(status)
-      .sendBufferedBody(buffer);
+    this.status(status).sendBufferedBody(buffer);
 
     // Returns the current instance.
     return this;
@@ -655,13 +719,57 @@ export class HTTPResponse {
   public json(object: any, status: number = 200): this {
     // Stringifies the object, and creates the buffer version.
     const stringified: string = JSON.stringify(object);
-    const buffer: Buffer = Buffer.from(
-      stringified,
-      "utf-8"
-    );
+    const buffer: Buffer = Buffer.from(stringified, "utf-8");
 
     // Writes the buffer to the client.
     return this.buffer(buffer, status, HTTPContentType.ApplicationJson);
+  }
+
+  /**
+   * Renders a template as result.
+   * @param template the template to render.
+   * @param data the data for the template.
+   * @param status the status code to send.
+   * @returns the current instance.
+   */
+  public render(template: string, data: any, status: number = 200): this {
+    const engine: string | null =
+      this.session.server.settings.templating?.engine ?? null;
+    const views: string | null =
+      this.session.server.settings.templating?.views ?? null;
+
+    // Makes sure there is a templating engine set.
+    if (engine === null)
+      throw new Error("Templating engine must be specified in the settings!");
+
+    // @ts-ignore
+    const templatingFunction = consolidate[engine] ?? null;
+
+    // Makes sure the engine exists, if not, throw an error.
+    if (templatingFunction === null)
+      throw new Error(`Unknown templating engine: ${engine}`);
+
+    // Gets the path of the template to render. If we're given an
+    //  absolute path, use it, otherwise we'll use a path relative
+    //  to the one specified in the settings.
+    if (path.isAbsolute(template) === false) {
+      if (views === null)
+        throw new Error('Cannot use relative template path when views not specified in settings.');
+
+      template = path.join(views, template);
+    }
+
+    // Renders the template.
+    templatingFunction(template, data, (err: Error, result: string): any => {
+      // If an error, write the error response.
+      if (err) return this.text(err.message, 500);
+
+      // If not an error, write a html response.
+      return this.html(result, status);
+    });
+
+    // Returns the current instance.
+    return this;
   }
 
   /**

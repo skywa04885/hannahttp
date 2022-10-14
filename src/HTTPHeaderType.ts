@@ -25,4 +25,6 @@ export enum HTTPHeaderType {
   AcceptEncoding = "Accept-Encoding",
   TransferEncoding = "Transfer-Encoding",
   ContentEncoding = "Content-Encoding",
+  SetCookie = "Set-Cookie",
+  Cookie = "Cookie",
 }

@@ -18,17 +18,14 @@
 
 import { HTTPSessionLogLevel } from "./HTTPSession";
 
-export enum HTTPTemplateEngine {
-  EJS = 'EJS',
-  PUG = 'PUG',
+export interface IHTTPTemplatingSettings {
+  engine: string | null;
+  views: string | null;
 }
 
 export class HTTPSettings {
-  public sessionLogLevel: HTTPSessionLogLevel;
-  public templateEngine: HTTPTemplateEngine | null;
+  public sessionLogLevel: HTTPSessionLogLevel = HTTPSessionLogLevel.Error;
+  public templating: IHTTPTemplatingSettings | null = null;
 
-  public constructor() {
-    this.sessionLogLevel = HTTPSessionLogLevel.Error;
-    this.templateEngine = null;
-  }
+  public constructor() {}
 }

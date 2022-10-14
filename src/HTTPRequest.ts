@@ -105,7 +105,7 @@ export class HTTPRequest<T = any> extends Writable {
 
   public body: HTTPRequestBody | null;
 
-  public u: T | null; // The user-data object, can contain anything the user would want.
+  public u: {[key: string]: any}; // The user-data object, can contain anything the user would want.
 
   public constructor(public readonly session: HTTPSession) {
     super();
@@ -122,7 +122,7 @@ export class HTTPRequest<T = any> extends Writable {
 
     this.body = null;
 
-    this.u = null;
+    this.u = {};
   }
 
   public reset() {
@@ -134,7 +134,7 @@ export class HTTPRequest<T = any> extends Writable {
     this.version = null;
     this.headers = null;
     this.body = null;
-    this.u = null;
+    this.u = {};
 
     // Calls the update event because we want to process old chunks.
     this.update();

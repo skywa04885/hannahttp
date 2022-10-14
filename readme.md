@@ -2,6 +2,10 @@
 
 HannaHTTP is a work-in-progress simple express.js alternative.
 
+## Dependencies
+
+1. consolidate
+
 ## Example
 
 ```ts
