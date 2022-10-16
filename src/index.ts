@@ -25,7 +25,14 @@ import { HTTPHeaders } from "./HTTPHeaders";
 import { HTTPEncoding } from "./HTTPEncoding";
 import { HTTPContentType } from "./HTTPContentType";
 import { HTTPEncodingHeader } from "./HTTPEncodingHeader";
-import { useBodyReader, useJsonBodyParser } from "./middleware/body";
+import {
+  useBodyReader,
+  useJsonBodyParser,
+  IUseJsonBodyParserOptions,
+  IBodyReaderOptions,
+  useUrlEncodedBodyParser,
+  IUseUrlEncodedBodyParserOptions,
+} from "./middleware/body";
 import { useCompression } from "./middleware/compress";
 import { useLogging } from "./middleware/logging";
 import { useStatic } from "./middleware/static";
@@ -34,6 +41,7 @@ import {
   IUseCookiesBody,
   IUseCookiesOptions,
 } from "./middleware/cookies";
+import { useVhost, IUseVhostOptions } from "./middleware/vhost";
 
 export {
   HTTPServer,
@@ -70,6 +78,12 @@ export {
   useLogging,
   useStatic,
   useCookies,
+  useVhost,
+  useUrlEncodedBodyParser,
+  IBodyReaderOptions,
+  IUseJsonBodyParserOptions,
+  IUseUrlEncodedBodyParserOptions,
+  IUseVhostOptions,
   IUseCookiesBody,
   IUseCookiesOptions,
 };

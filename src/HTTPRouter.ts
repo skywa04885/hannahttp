@@ -55,8 +55,9 @@ export class HTTPRouter {
    * Handles the given request.
    * @param request the request to handle.
    * @param response the response for the handled request.
+   * @param path the optional path for when we're dealing with vhosts.
    */
-  public handle(request: HTTPRequest, response: HTTPResponse): this {
+  public handle(request: HTTPRequest, response: HTTPResponse, path: string | null = null): this {
     throw new Error("Not implemented!");
   }
 }
@@ -299,12 +300,13 @@ export class HTTPSimpleRouter extends HTTPRouter {
    * Handles the given request.
    * @param httpRequest the request to handle.
    * @param httpResponse the response to pass with it.
+   * @param path the optional supplied path, for when we're dealing with virtual hosts.
    * @returns the current instance.
    */
-  public handle(httpRequest: HTTPRequest, httpResponse: HTTPResponse): this {
+  public handle(httpRequest: HTTPRequest, httpResponse: HTTPResponse, path: string | null = null): this {
     const httpSimpleRouterMethod: HTTPSimpleRouterMethod =
       httpSimpleRouterMethodFromHttpMethod(httpRequest.method!);
-    const path: string = this.cleanPath(httpRequest.uri!.path);
+    path = path !== null ? this.cleanPath(path) : this.cleanPath(httpRequest.uri!.path);
 
     // Creates the generator for the callbacks.
     const callbacksGenerator: Generator<[HTTPPathMatch, HTTPRouterCallback]> = this.callbacks(

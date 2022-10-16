@@ -26,6 +26,7 @@ export const useCookies = (options?: IUseCookiesOptions) => {
   ): any => {
     // Gets the reference to the request userdata as cookies body.
     const u: IUseCookiesBody = request.u as IUseCookiesBody;
+    u.cookies = {};
 
     // Gets the list of cookies, if null just return since there are none.
     const cookies: string[] | null = request.headers?.getHeader(HTTPHeaderType.Cookie) ?? null;

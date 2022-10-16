@@ -26,9 +26,9 @@ import {
   HTTPRequestEvent,
 } from "../HTTPRequest";
 import { HTTPResponse } from "../HTTPResponse";
-import { HTTPRouterCallback, HTTPRouterNextFunction } from "../HTTPRouter";
+import { HTTPRouter, HTTPRouterCallback, HTTPRouterNextFunction } from "../HTTPRouter";
 
-interface IBodyReaderOptions {}
+export interface IBodyReaderOptions {}
 
 /**
  * Constructs a middleware to read a body.
@@ -61,7 +61,7 @@ export const useBodyReader = (
   };
 };
 
-interface IJSONBodyparserOptions {}
+export interface IUseJsonBodyParserOptions {}
 
 /**
  * Constructs a middleware to parse a json body.
@@ -69,14 +69,14 @@ interface IJSONBodyparserOptions {}
  * @returns the middleware to parse a json body.
  */
 export const useJsonBodyParser = (
-  options?: IJSONBodyparserOptions
+  options?: IUseJsonBodyParserOptions
 ): HTTPRouterCallback => {
   return (
     match: HTTPPathMatch,
     request: HTTPRequest,
     response: HTTPResponse,
     next: HTTPRouterNextFunction
-  ): void => {
+  ): any => {
     // If the request body is not json, just go to the next callback.
     if (
       request.headers!.getSingleHeader(HTTPHeaderType.ContentType) !==
@@ -93,10 +93,68 @@ export const useJsonBodyParser = (
 
     // Parses the json, and puts it in the request user data.
     const bodyObject: any = JSON.parse(bodyString);
-    request.u = {};
     request.u.body = bodyObject;
 
     // Continues to the next route.
-    next();
+    return next();
   };
 };
+
+export interface IUseUrlEncodedBodyParserOptions {}
+
+/**
+ * Creates a piece of middleware that decode an X-WWW-FORM-URLENCODED body.
+ * @param options the options for the middleware.
+ * @returns the callback that will process the body,
+ */
+export const useUrlEncodedBodyParser = (options?: IUseUrlEncodedBodyParserOptions): HTTPRouterCallback =>  {
+  // Sets the default options.
+  options = Object.assign({}, options);
+
+  // Returns the middleware.
+  return (
+    match: HTTPPathMatch,
+    request: HTTPRequest,
+    response: HTTPResponse,
+    next: HTTPRouterNextFunction
+  ): any => {
+    // If the request body is not json, just go to the next callback.
+    if (
+      request.headers!.getSingleHeader(HTTPHeaderType.ContentType) !==
+      HTTPContentType.ApplicationXWWWFormUrlencoded
+    )
+      return next();
+
+    // Gets the request body and interprets it as a buffer body.
+    const bufferBody: HTTPRequestBufferBody =
+      request.body as HTTPRequestBufferBody;
+
+    // Get the string version of the buffer in the request body.
+    const bodyString: string = bufferBody.buffer.toString("utf-8");
+
+    // Parses the json, and puts it in the request user data.
+    const bodyObject: any = Object.fromEntries(bodyString.split("&").map((pair: string): [string, string] => {
+      // Splits the pair into segments.
+      const pairSegments: string[] = pair.split('=');
+      if (pairSegments.length !== 2) 
+        throw new Error(`Invalid pair segment count: ${pairSegments.length}`);
+
+      // Gets the key and the value.
+      let [key, value] = pairSegments;
+
+      // Cleans the key and the value.
+      key = key.trim();
+      value = value.trim();
+
+      // Decodes the value.
+      value = decodeURIComponent(value);
+
+      // Returns the pair.
+      return [key, value];
+    }));
+    request.u.body = bodyObject;
+
+    // Continues to the next route.
+    return next();
+  };
+}

@@ -68,8 +68,14 @@ export class HTTPHeaders {
    * @param key the key of the header to get.
    * @returns the header value.
    */
-  public getHeader(key: string): string[] | null {
+  public getHeader(key: string, transform: boolean = true): string[] | null {
+    // Transforms the key.
+    key = key.toLowerCase();
+
+    // Gets the header.
     const header: string | string[] | null = this.headers[key] ?? null;
+    
+    // Returns the header, and makes sure it's either null or an array.
     if (header === null) return null;
     else if (Array.isArray(header)) return header;
     else return [ header ];

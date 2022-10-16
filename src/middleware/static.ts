@@ -16,6 +16,7 @@
   along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
+import { fstat } from "fs";
 import path from "path";
 import { HTTPClientHandler } from "../HTTPClientHandler";
 import { HTTPPathMatch } from "../HTTPPathMatch";

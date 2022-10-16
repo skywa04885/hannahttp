@@ -26,6 +26,7 @@ import { useCompression } from "../middleware/compress";
 import { HTTPSettings } from "../HTTPSettings";
 import { HTTPSessionLogLevel } from "../HTTPSession";
 import { useCache } from "../middleware/cache";
+import { useVhost } from "../middleware/vhost";
 
 // Creates the nested router.
 const httpSimpleNestedRouter: HTTPSimpleRouter = new HTTPSimpleRouter();
