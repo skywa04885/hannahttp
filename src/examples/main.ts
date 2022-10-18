@@ -25,21 +25,19 @@ import { useLogging } from "../middleware/logging";
 import { useCompression } from "../middleware/compress";
 import { HTTPSettings } from "../HTTPSettings";
 import { HTTPSessionLogLevel } from "../HTTPSession";
-import { useCache } from "../middleware/cache";
 import { useVhost } from "../middleware/vhost";
 
 // Creates the nested router.
 const httpSimpleNestedRouter: HTTPSimpleRouter = new HTTPSimpleRouter();
 
 // Example of using compression and json in the nested router.
-httpSimpleNestedRouter.get(
-  "/all",
-  (match, req, res, next) => {
-    res.json({
-      hello: "world",
-    });
-  }
-);
+httpSimpleNestedRouter.get("/all", async (match, req, res) => {
+  await res.json({
+    hello: "world",
+  });
+
+  return false;
+});
 
 // Creates the primary router.
 const httpSimpleRouter: HTTPSimpleRouter = new HTTPSimpleRouter();
@@ -49,8 +47,9 @@ httpSimpleRouter.use(useBodyReader());
 httpSimpleRouter.use(useJsonBodyParser());
 
 // Simple file serving.
-httpSimpleRouter.get("/", (match, req, res, next): any => {
-  return res.file(path.join(__dirname, "views", "index.html"));
+httpSimpleRouter.get("/", async (match, req, res): Promise<boolean> => {
+  await res.file(path.join(__dirname, "views", "index.html"));
+  return false;
 });
 
 // Example of nested router.
@@ -59,9 +58,6 @@ httpSimpleRouter.get("/api/*", httpSimpleNestedRouter);
 // Example of static file serving with compression.
 httpSimpleRouter.get(
   "/static/*",
-  useCache({
-    ttl: 60000,
-  }),
   useCompression({
     match: /(\.html|\.js|\.css|\.jpg)$/, // Only compress files that match the expression.
     useDeflate: true,
@@ -72,19 +68,31 @@ httpSimpleRouter.get(
 
 // Example where parameters are given in the request, each starts with ':'
 //  and are not allowed to start / end with __ (due to system usage).
-httpSimpleRouter.get("/test/:store_id/:article_id", (match, req, res, next): any => {
-  return res.json({
-    parameters: match.parameters,
-  });
-});
+httpSimpleRouter.get(
+  "/test/:store_id/:article_id",
+  async (match, req, res): Promise<boolean> => {
+    await res.json({
+      parameters: match.parameters,
+    });
+
+    return false;
+  }
+);
 
 // Sends a 404 page not found for all remaining matches.
-httpSimpleRouter.any("/*", (match, req, res, next) => res.text("", 404));
+httpSimpleRouter.any("/*", async (match, req, res): Promise<boolean> => {
+  await res.text("", 404);
+
+  return false;
+});
 
 // Creates the server settings.
 const settings: HTTPSettings = new HTTPSettings();
-// settings.sessionLogLevel = HTTPSessionLogLevel.Trace;
+settings.sessionLogLevel = HTTPSessionLogLevel.Trace;
 
 // Creates and listens the server.
-const httpServer: HTTPServerPlain = new HTTPServerPlain(httpSimpleRouter, settings);
+const httpServer: HTTPServerPlain = new HTTPServerPlain(
+  httpSimpleRouter,
+  settings
+);
 httpServer.listen(8080, "localhost", 10);

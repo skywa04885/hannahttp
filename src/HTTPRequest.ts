@@ -105,7 +105,7 @@ export class HTTPRequest<T = any> extends Writable {
 
   public body: HTTPRequestBody | null;
 
-  public u: {[key: string]: any}; // The user-data object, can contain anything the user would want.
+  public u: { [key: string]: any }; // The user-data object, can contain anything the user would want.
 
   public constructor(public readonly session: HTTPSession) {
     super();
@@ -377,8 +377,8 @@ export class HTTPRequest<T = any> extends Writable {
     // Makes sure the chunk is a buffer.
     if (!(chunk instanceof Buffer))
       throw new Error("Chunk must be a buffer instance!");
-    
-      // Concats the buffer or makes it the primary buffer.
+
+    // Concats the buffer or makes it the primary buffer.
     if (this._buffer === null) this._buffer = chunk;
     else this._buffer = Buffer.concat([this._buffer, chunk]);
 
@@ -393,19 +393,24 @@ export class HTTPRequest<T = any> extends Writable {
    * Loads the request body into an buffer.
    * @param expectedSize the expected size of the body to be loaded.
    */
-  public loadBufferBody(expectedSize: number): void {
-    // Makes sure there is no body being loaded yet.
-    if (this.body !== null) {
-      throw new Error(
-        "Cannot load buffer body: request already loaded/loading other body!"
-      );
-    }
+  public loadBufferBody(expectedSize: number): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      // Makes sure there is no body being loaded yet.
+      if (this.body !== null) {
+        throw new Error(
+          "Cannot load buffer body: request already loaded/loading other body!"
+        );
+      }
 
-    // Creates the new buffer body instance, and changes the state to body loading.
-    this.body = new HTTPRequestBufferBody(expectedSize);
-    this._state = HTTPRequestState.BODY;
+      // Adds an listener for when the body is loaded, which will resolve.
+      this.on(HTTPRequestEvent.BodyLoaded, resolve);
 
-    // Starts processing the existing data in the internal buffer.
-    this.update();
+      // Creates the new buffer body instance, and changes the state to body loading.
+      this.body = new HTTPRequestBufferBody(expectedSize);
+      this._state = HTTPRequestState.BODY;
+
+      // Starts processing the existing data in the internal buffer.
+      this.update();
+    });
   }
 }

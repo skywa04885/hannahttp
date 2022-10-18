@@ -28,8 +28,7 @@ export type HTTPRouterCallback<T = any> = (
   match: HTTPPathMatch,
   request: HTTPRequest<T>,
   response: HTTPResponse,
-  next: HTTPRouterNextFunction
-) => void;
+) => Promise<boolean>;
 
 export enum HTTPSimpleRouterMethod {
   GET = 0,
@@ -56,8 +55,13 @@ export class HTTPRouter {
    * @param request the request to handle.
    * @param response the response for the handled request.
    * @param path the optional path for when we're dealing with vhosts.
+   * @returns a promise that resolves once the request is handled.
    */
-  public handle(request: HTTPRequest, response: HTTPResponse, path: string | null = null): this {
+  public async handle(
+    request: HTTPRequest,
+    response: HTTPResponse,
+    path: string | null = null
+  ): Promise<void> {
     throw new Error("Not implemented!");
   }
 }
@@ -131,7 +135,10 @@ export class HTTPSimpleRouter extends HTTPRouter {
    * @param handlers the handlers for when matches.
    * @returns the current instance.
    */
-  public connect(matcher: string, ...handlers: HTTPSimpleRouterHandler[]): this {
+  public connect(
+    matcher: string,
+    ...handlers: HTTPSimpleRouterHandler[]
+  ): this {
     return this.register(HTTPMethod.CONNECT, matcher, ...handlers);
   }
 
@@ -262,7 +269,15 @@ export class HTTPSimpleRouter extends HTTPRouter {
   ): Generator<[HTTPPathMatch, HTTPRouterCallback]> {
     for (const element of this._elements) {
       // If the method does not match, continue.
-      if (!(element[0] === null || element[0] === method)) continue;
+      if (
+        !(
+          element[0] === null ||
+          element[0] === method ||
+          (element[0] === HTTPSimpleRouterMethod.GET &&
+            method === HTTPSimpleRouterMethod.HEAD)
+        )
+      )
+        continue;
 
       // Gets the matcher.
       const httpUriMatcher: HTTPPathMatcher = element[1];
@@ -301,34 +316,31 @@ export class HTTPSimpleRouter extends HTTPRouter {
    * @param httpRequest the request to handle.
    * @param httpResponse the response to pass with it.
    * @param path the optional supplied path, for when we're dealing with virtual hosts.
-   * @returns the current instance.
+   * @returns a promise that resolves when the request is handled.
    */
-  public handle(httpRequest: HTTPRequest, httpResponse: HTTPResponse, path: string | null = null): this {
+  public async handle(
+    httpRequest: HTTPRequest,
+    httpResponse: HTTPResponse,
+    path: string | null = null
+  ): Promise<void> {
+    // Gets the router method.
     const httpSimpleRouterMethod: HTTPSimpleRouterMethod =
       httpSimpleRouterMethodFromHttpMethod(httpRequest.method!);
-    path = path !== null ? this.cleanPath(path) : this.cleanPath(httpRequest.uri!.path);
 
-    // Creates the generator for the callbacks.
-    const callbacksGenerator: Generator<[HTTPPathMatch, HTTPRouterCallback]> = this.callbacks(
+    // Cleans up the path.
+    path =
+      path !== null
+        ? this.cleanPath(path)
+        : this.cleanPath(httpRequest.uri!.path);
+
+    // Loops over all the callbacks.
+    for (const [match, callback] of this.callbacks(
       httpSimpleRouterMethod,
       path
-    );
-
-    // Creates the next function.
-    const next = (): any => {
-      // Gets the next callback, and if the generator is done return.
-      const iteratorResult: IteratorResult<[HTTPPathMatch, HTTPRouterCallback]> =
-        callbacksGenerator.next();
-      if (iteratorResult.done) return;
-
-      // Gets the match, and runs it.
-      const [match, callback]: [HTTPPathMatch, HTTPRouterCallback] = iteratorResult.value;
-      callback(match, httpRequest, httpResponse, next);
-    };
-
-    // Runs the next function for the first time.
-    next();
-
-    return this;
+    )) {
+      // Runs the callback, and breaks if we shouldn't run the next route.
+      const next: boolean = await callback(match, httpRequest, httpResponse);
+      if (!next) break;
+    }
   }
 }

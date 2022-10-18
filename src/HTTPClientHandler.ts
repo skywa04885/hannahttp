@@ -26,6 +26,7 @@ import { HTTPRouter } from "./HTTPRouter";
 import { HTTPClientSocket } from "./HTTPClientSocket";
 import { HTTPSession } from "./HTTPSession";
 import { HTTPServer } from "./HTTPServer";
+import { HTTPMethod } from "./HTTPMethod";
 
 export class HTTPClientHandler {
   protected _session: HTTPSession;
@@ -48,24 +49,35 @@ export class HTTPClientHandler {
     this.client.socket.pipe(this._request);
 
     // Handles the even where the request headers are loaded (enough to handle the request).
-    this._request.on(HTTPRequestEvent.HeadersLoaded, () =>
-      this._onRequest()
-    );
+    this._request.on(HTTPRequestEvent.HeadersLoaded, () => this._onRequest());
   }
-  
+
   /**
-   * Gets called when a new request has been received.
+   * Gets called when a request is ready to be processed.
+   * @returns a promise that resolves once the request has been handled.
    */
-  protected _onRequest(): void {
+  protected async _onRequest(): Promise<void> {
     // Creates the response, this will be used to respond to the request.
     const response: HTTPResponse = new HTTPResponse(
-      this._request.version!,
+      this._request,
       this._session,
-      () => this._request.reset()
     );
 
-    // Handles the request and response in the router.
-    this.server.router.handle(this._request, response);
+    // Modifies the response so we'll exclude the body (only if we're dealing with HEAD).
+    if (this._request.method === HTTPMethod.HEAD) {
+      this._session.shouldTrace(() =>
+        this._session.trace(
+          "_onRequest(): dealing with HEAD method, so configuring response to exclude the body."
+        )
+      );
+      response.excludeBody();
+    }
+
+    // Waits for the request to be handled.
+    await this.server.router.handle(this._request, response);
+
+    // Resets the request so we can receive the next one.
+    this._request.reset();
   }
 
   /**
@@ -76,12 +88,12 @@ export class HTTPClientHandler {
    */
   public static fromClientAndServer(
     client: HTTPClientSocket,
-    server: HTTPServer,
+    server: HTTPServer
   ): HTTPClientHandler {
     // Creates the http client handler.
     const httpClientHandler: HTTPClientHandler = new HTTPClientHandler(
       client,
-      server,
+      server
     );
 
     // Returns the client handler.

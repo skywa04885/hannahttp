@@ -2,7 +2,7 @@ import { HTTPHeaderType } from "../HTTPHeaderType";
 import { HTTPPathMatch } from "../HTTPPathMatch"
 import { HTTPRequest } from "../HTTPRequest"
 import { HTTPResponse } from "../HTTPResponse"
-import { HTTPRouterNextFunction } from "../HTTPRouter"
+import { HTTPRouterCallback, HTTPRouterNextFunction } from "../HTTPRouter"
 
 export interface IUseCookiesOptions {}
 
@@ -15,22 +15,21 @@ export interface IUseCookiesBody {
  * @param options the options for the piece of middleware.
  * @returns the piece of middleware used to parse cookies.
  */
-export const useCookies = (options?: IUseCookiesOptions) => {
+export const useCookies = (options?: IUseCookiesOptions): HTTPRouterCallback => {
   options = Object.assign({}, options);
 
-  return (
+  return async (
     match: HTTPPathMatch,
     request: HTTPRequest,
     response: HTTPResponse,
-    next: HTTPRouterNextFunction
-  ): any => {
+  ): Promise<boolean> => {
     // Gets the reference to the request userdata as cookies body.
     const u: IUseCookiesBody = request.u as IUseCookiesBody;
     u.cookies = {};
 
     // Gets the list of cookies, if null just return since there are none.
     const cookies: string[] | null = request.headers?.getHeader(HTTPHeaderType.Cookie) ?? null;
-    if (cookies === null) return next();
+    if (cookies === null) return true;
 
     // Loops over all the cookies and parses them.
     for (const cookie of cookies) {
@@ -57,6 +56,6 @@ export const useCookies = (options?: IUseCookiesOptions) => {
     }
 
     // Calls the next piece of middleware.
-    return next();
+    return true;
   };
 }

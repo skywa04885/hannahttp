@@ -22,9 +22,7 @@ import { HTTPURI } from "./HTTPURI";
 import { HTTPClientHandler } from "./HTTPClientHandler";
 import { HTTPHeaderType } from "./HTTPHeaderType";
 import { HTTPHeaders } from "./HTTPHeaders";
-import { HTTPEncoding } from "./HTTPEncoding";
 import { HTTPContentType } from "./HTTPContentType";
-import { HTTPEncodingHeader } from "./HTTPEncodingHeader";
 import {
   useBodyReader,
   useJsonBodyParser,
@@ -69,9 +67,7 @@ export {
   HTTPURI,
   HTTPHeaderType,
   HTTPHeaders,
-  HTTPEncoding,
   HTTPContentType,
-  HTTPEncodingHeader,
   useBodyReader,
   useJsonBodyParser,
   useCompression,

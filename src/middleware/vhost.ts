@@ -29,25 +29,27 @@ export const useVhost = (
   host = host.trim().toLowerCase();
 
   // Returns the piece of middleware.
-  return (
+  return async (
     match: HTTPPathMatch,
     request: HTTPRequest,
     response: HTTPResponse,
-    next: HTTPRouterNextFunction
-  ): any => {
+  ): Promise<boolean> => {
     // Gets the header, and if not there, continue.
     let requestHost: string | null = request.headers!.getSingleHeader(
       HTTPHeaderType.Host
     );
-    if (requestHost === null) return next();
+    if (requestHost === null) return true;
 
     // Cleans the host up, so we can easily compare it.
     requestHost = requestHost.trim().toLowerCase();
 
     // Checks if the host matches, if not, call the next middleware.
-    if (requestHost !== host) return next();
+    if (requestHost !== host) return true;
 
     // Uses the router given in the arguments.
-    router.handle(request, response, match.remainder ?? '');
+    await router.handle(request, response, match.remainder ?? '');
+
+    // Do not go to the next piece of middleware.
+    return false;
   };
 };

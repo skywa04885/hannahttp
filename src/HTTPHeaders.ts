@@ -16,6 +16,14 @@
   along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
+import { HTTPAcceptRange, HTTPAcceptRangesHeader } from "./headers/HTTPAcceptRangesHeader";
+import { HTTPContentEncodingHeader } from "./headers/HTTPContentEncodingHeader";
+import { HTTPContentRangeHeader } from "./headers/HTTPContentRangeHeader";
+import { HTTPHeader } from "./headers/HTTPHeader";
+import { HTTPRangeHeader } from "./headers/HTTPRangeHeader";
+import { HTTPTransferEncodingHeader } from "./headers/HTTPTransferEncodingHeader";
+import { HTTPHeaderType } from "./HTTPHeaderType";
+
 export class HTTPHeaders {
   /**
    * Constructs a new headers instance.
@@ -115,5 +123,30 @@ export class HTTPHeaders {
         value: pair[1],
       };
     }
+  }
+
+  public getSingleTypedHeader(key: string, index: number = 0, transform: boolean = true): HTTPHeader | null {
+    const raw: string | null = this.getSingleHeader(key, index, transform);
+    if (raw === null) return null;
+
+    let header: HTTPHeader | null = null;
+    switch (key) {
+      case HTTPHeaderType.ContentRange:
+        header = HTTPContentRangeHeader.decode(raw);
+        break;
+      case HTTPHeaderType.ContentEncoding:
+        header = HTTPContentEncodingHeader.decode(raw);
+        break;
+      case HTTPHeaderType.TransferEncoding:
+        header = HTTPTransferEncodingHeader.decode(raw);
+        break;
+      case HTTPHeaderType.Range:
+        header = HTTPRangeHeader.decode(raw);
+        break;
+      default:
+        throw new Error(`Cannot decode header of type: "${key}"`);
+    }
+
+    return header;
   }
 }

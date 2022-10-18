@@ -27,7 +27,7 @@ import { HTTPRouterCallback, HTTPRouterNextFunction } from "../HTTPRouter";
 export interface IServeFilesOptions {}
 
 /**
- * 
+ *
  * @param rootPath the root directory to serve files from.
  * @param options the file serving options.
  * @returns the callback that can be run by the router.
@@ -36,17 +36,16 @@ export const useStatic = (
   rootPath: string,
   options?: IServeFilesOptions
 ): HTTPRouterCallback => {
-  return (
+  return async (
     match: HTTPPathMatch,
     request: HTTPRequest,
-    response: HTTPResponse,
-    next: HTTPRouterNextFunction
-  ): any => {
+    response: HTTPResponse
+  ): Promise<boolean> => {
     // The remainder of the url will serve as the path of the file.
     const filePath: string | null = match.remainder;
 
     // If the file is null, then we won't know what to open so send 404.
-    if (filePath === null) return response.text("No file specified!", 404);
+    if (filePath === null) return true;
 
     // Merges the given root with the file name.
     const completePath: string = path.join(rootPath, filePath);
@@ -56,12 +55,16 @@ export const useStatic = (
       completePath.length < rootPath.length ||
       completePath.substring(0, rootPath.length) !== rootPath
     )
-      return response.text(
-        `File '${completePath}' not inside root directory: '${rootPath}', suck it! I actually kept that in mind.`
-      );
+      return true;
 
-    // Writes the file.
-    return response.file(completePath);
+    // Tries to write the file, if any error occurs log it, and just go to the next piece of middleware.
+    try {
+      await response.file(completePath);
+      return false;
+    } catch (e) {}
+
+    // Goes to the next piece of middleware.
+    return true;
   };
 };
 

@@ -25,4 +25,5 @@ export enum HTTPContentType {
   ApplicationXWWWFormUrlencoded = "application/x-www-form-urlencoded",
   TextJavascript = "text/javascript",
   TextCSS = "text/css",
+  VideoMP4 = "video/mp4",
 }

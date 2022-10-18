@@ -29,12 +29,11 @@ export interface ISimpleLoggerOptions {}
  * @returns the middleware to perform the simple logging.
  */
 export const useLogging = (options?: ISimpleLoggerOptions): HTTPRouterCallback => {
-  return (
+  return async (
     match: HTTPPathMatch,
     request: HTTPRequest,
     response: HTTPResponse,
-    next: HTTPRouterNextFunction
-  ): void => {
+  ): Promise<boolean> => {
     console.info(`${request.method} ${request.rawUri!} ${request.version}:`);
     for (const header of request.headers!.iterator()) {
       if (Array.isArray(header.value)) {
@@ -43,6 +42,6 @@ export const useLogging = (options?: ISimpleLoggerOptions): HTTPRouterCallback =
       } else console.info(`\t${header.key}: ${header.value}`);
     }
 
-    return next();
+    return true;
   };
 };

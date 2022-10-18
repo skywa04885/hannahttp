@@ -27,13 +27,11 @@ import { buffer } from "stream/consumers";
 ////////////////////////////////////////////////////
 
 export class HTTPClientSocket {
-
   /**
    * Constructs a new http client socket.
    * @param socket the socket to use.
    */
-  public constructor(public readonly socket: net.Socket) {
-  }
+  public constructor(public readonly socket: net.Socket) {}
 
   /**
    * Wraps the given socket in a http client socket.
@@ -59,5 +57,19 @@ export class HTTPClientSocket {
   public destroy(): this {
     this.socket.destroy();
     return this;
+  }
+
+  /**
+   * Performs an async write.
+   * @param buffer the buffer to write to the socket.
+   * @returns the promise that resolves once written.
+   */
+  public async write(buffer: Buffer): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      this.socket.write(buffer, (err?: Error) => {
+        if (err) reject(err);
+        else resolve();
+      });
+    });
   }
 }
