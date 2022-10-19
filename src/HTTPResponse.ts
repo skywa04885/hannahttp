@@ -22,8 +22,7 @@ import path from "path";
 import consolidate from "consolidate";
 import { HTTPContentType } from "./HTTPContentType";
 import { HTTPHeaderType } from "./HTTPHeaderType";
-import { HTTPVersion } from "./HTTPVersion";
-import { Readable, Transform, Writable } from "stream";
+import { EventEmitter, Readable, Transform, Writable } from "stream";
 import { HTTPSession } from "./HTTPSession";
 import {
   HTTPTransferEncoding,
@@ -34,12 +33,10 @@ import {
   HTTPContentEncodingHeader,
 } from "./headers/HTTPContentEncodingHeader";
 import { HTTPRequest } from "./HTTPRequest";
-import { HTTPContentRangeHeader } from "./headers/HTTPContentRangeHeader";
 import {
   HTTPAcceptRange,
   HTTPAcceptRangesHeader,
 } from "./headers/HTTPAcceptRangesHeader";
-import { HTTPHeader } from "./headers/HTTPHeader";
 import { HTTPRangeHeader } from "./headers/HTTPRangeHeader";
 
 export enum HTTPResponseState {
@@ -70,7 +67,12 @@ export interface IHTTPResponseCookieOptions {
   sameSite?: HTTPResponseCookieSameSite;
 }
 
-export class HTTPResponse {
+export enum HTTPResponseEvent {
+  Header = "header",
+  Status = "status",
+}
+
+export class HTTPResponse extends EventEmitter {
   protected _excludeBody: boolean = false;
   protected _state: HTTPResponseState = HTTPResponseState.WritingResponseLine;
   protected _bodyWritable: Writable | null = null;
@@ -78,7 +80,8 @@ export class HTTPResponse {
 
   protected _bodySize: number | null = null;
   protected _enqueuedHeaders: [string, string][] | null = null;
-  protected _bodyTransforms: Transform[] | null = null
+  protected _rawBodyTransforms: Transform[] | null = null;
+  protected _bodyTransforms: Transform[] | null = null;
 
   protected _transferEncoding: HTTPTransferEncodingHeader | null = null;
   protected _contentEncoding: HTTPContentEncodingHeader | null = null;
@@ -87,8 +90,10 @@ export class HTTPResponse {
 
   public constructor(
     public readonly request: HTTPRequest,
-    public readonly session: HTTPSession,
-  ) {}
+    public readonly session: HTTPSession
+  ) {
+    super();
+  }
 
   //////////////////////////////////////////////////
   // Getters
@@ -170,9 +175,10 @@ export class HTTPResponse {
   /**
    * Adds a transform stream.
    * @param transform the transform stream.
+   * @param raw if the transformer should be inserted between the body writable and the socket.
    * @returns the current instance.
    */
-  public addBodyTransform(transform: Transform): this {
+  public addBodyTransform(transform: Transform, raw: boolean = false): this {
     if (
       ![
         HTTPResponseState.WritingResponseLine,
@@ -183,8 +189,19 @@ export class HTTPResponse {
         `addBodyTransform(): not allowed in state ${this._state}`
       );
 
+    if (raw) {
+      // Initializes the raw body transforms.
+      this._rawBodyTransforms ??= [];
+
+      // Pushes the transform.
+      this._rawBodyTransforms.push(transform);
+
+      // Returns the current instance.
+      return this;
+    }
+    
     // Initializes the body transforms.
-    if (this._bodyTransforms === null) this._bodyTransforms = [];
+    this._bodyTransforms ??= [];
 
     // Pushes the transform
     this._bodyTransforms.push(transform);
@@ -210,6 +227,9 @@ export class HTTPResponse {
     // Sets the internal status.
     this._sentStatus = code;
 
+    // Emits the event (pre-message assignment due to memory saving).
+    this.emit(HTTPResponseEvent.Status, code, message);
+
     // If the message has not been given, get one of the default ones.
     if (message === null) message = HTTPResponse._getMessageForStatusCode(code);
 
@@ -229,7 +249,7 @@ export class HTTPResponse {
    * Writes all the default headers.
    * @returns a promise that resolves once written.
    */
-  protected async _defaultHeaders(): Promise<void> {
+  public async defaultHeaders(): Promise<void> {
     // Sends the truely default headers.
     await this.header(HTTPHeaderType.Date, new Date().toUTCString());
     await this.header(HTTPHeaderType.Server, "HannaHTTP");
@@ -289,6 +309,9 @@ export class HTTPResponse {
     if (this._state !== HTTPResponseState.WritingResponseHeaders)
       throw new Error(`Cannot write header in state: ${this._state}`);
 
+    // Emits the header event.
+    this.emit(HTTPResponseEvent.Header, key, value);
+
     // Constructs the header and writes it to the client.
     const headerString: string = `${key}: ${value}\r\n`;
     const headerStringBuffer: Buffer = Buffer.from(headerString, "utf-8");
@@ -333,29 +356,48 @@ export class HTTPResponse {
   }
 
   /**
-   * The method to call when you want to write the body.
-   * @param buffer the buffer to write for the body.
-   * @returns the current instance.
+   * Writes the body immediately to the socket (wuthout _bodyWritable).
+   * @param buffer the buffer to write to the socket.
    */
-  public async writeBody(buffer: Buffer): Promise<void> {
+  public async writeBodyImmediate(buffer: Buffer): Promise<void> {
     // Checks if we're in the appropriate state.
     if (this._state !== HTTPResponseState.WritingResponseBody)
       throw new Error(`Cannot write body in state: ${this._state}`);
 
-    // Makes sure the body writable is there.
-    if (this._bodyWritable === null)
-      throw new Error("Body writable must be defined!");
+    // Writes the buffer to the socket.
+    await this.session.client.socket.write(buffer);
+  }
 
-    // Writes the data to the body writable.
-    this._bodyWritable.write(buffer);
-    this._bodyWritable.end();
+  /**
+   * The method to call when you want to write the body.
+   * @param buffer the buffer to write for the body.
+   * @returns the current instance.
+   */
+  public writeBody(buffer: Buffer): Promise<void> {
+    return new Promise<void>((resolve, reject): void => {
+      // Checks if we're in the appropriate state.
+      if (this._state !== HTTPResponseState.WritingResponseBody)
+        throw new Error(`Cannot write body in state: ${this._state}`);
+
+      // Makes sure the body writable is there.
+      if (this._bodyWritable === null)
+        throw new Error("Body writable must be defined!");
+
+      // Adds listeners.
+      this._bodyWritable.on("error", reject);
+      this._bodyWritable.on("close", resolve);
+
+      // Writes the data to the body writable.
+      this._bodyWritable.write(buffer);
+      this._bodyWritable.end();
+    });
   }
 
   /**
    * Ends the current response body.
    * @returns a promise that resolves once written to the client.
    */
-  public async _endBody(): Promise<void> {
+  public async endBody(): Promise<void> {
     // Makes sure we're in the correct state.
     if (this._state !== HTTPResponseState.WritingResponseBody)
       throw new Error(`Cannot finish body in state: ${this._state}`);
@@ -374,7 +416,7 @@ export class HTTPResponse {
    *  basically after the final header has been written.
    * @returns a promise that resolves once written to the client.
    */
-  protected async _endHeaders(): Promise<void> {
+  public async endHeaders(): Promise<void> {
     // Makes sure we're in the correct state.
     if (this._state !== HTTPResponseState.WritingResponseHeaders)
       throw new Error(`Cannot finish headers in state: ${this._state}`);
@@ -464,19 +506,38 @@ export class HTTPResponse {
     }
 
     // Writes the default headers.
-    await this._defaultHeaders();
+    await this.defaultHeaders();
 
     // Ends the headers before we start the body.
-    await this._endHeaders();
+    await this.endHeaders();
 
     // Prepares the streams.
     ////
+
+    // Adds the raw body transforms if there.
+    if (this._rawBodyTransforms) {
+      //  will pass through the previously added stream.
+      for (let i: number = this._rawBodyTransforms!.length - 1; i > 0; i--) {
+        const pipeTo: Transform = this._rawBodyTransforms![i - 1];
+        const pipeFrom: Transform = this._rawBodyTransforms![i];
+        pipeFrom.pipe(pipeTo);
+      }
+
+      // Pipes the oldest stream to the socket.
+      this._rawBodyTransforms![0].pipe(this.session.client.socket, {
+        end: false,
+      });
+
+      // makes the newest stream the input writable.
+      this._bodyWritable =
+        this._rawBodyTransforms![this._rawBodyTransforms!.length - 1];
+    } else this._bodyWritable = this.session.client.socket;
 
     // If we're going to use chunking put a final transform stream between the socket and the body
     //  that's about to be written to encode it as chunks. Else just set the socket as the writable.
     if (shouldUseChunking) {
       // Creates the transform stream.
-      this._bodyWritable = new Transform({
+      const transform: Transform = new Transform({
         final: (callback: (error: Error | null | undefined) => void) => {
           // Performs some logging.
           this.session.shouldTrace(() =>
@@ -485,11 +546,11 @@ export class HTTPResponse {
             )
           );
 
-          // Writes the final zero chunk.
-          this.session.client.socket.write(Buffer.from("0\r\n\r\n", "utf-8"));
+          // Pushes the last byte.
+          transform.push(Buffer.from("0\r\n\r\n", "utf-8"));
 
           // Ends the body.
-          this._endBody();
+          this.endBody();
 
           // Finishes the stream.
           callback(null);
@@ -525,15 +586,18 @@ export class HTTPResponse {
       });
 
       // Pipes the transform stream to the socket (ignore end).
-      this._bodyWritable.pipe(this.session.client.socket, {
-        end: false,
+      transform.pipe(this._bodyWritable, {
+        end: this._bodyWritable === this.session.client.socket ? false : true,
       });
+
+      // Replaces the body writable.
+      this._bodyWritable = transform;
     } else {
       // Creates the transform stream.
-      this._bodyWritable = new Transform({
+      const transform: Transform = new Transform({
         final: (callback: (error: Error | null | undefined) => void) => {
           // Ends the body.
-          this._endBody();
+          this.endBody();
 
           // Finishes the stream.
           callback(null);
@@ -549,9 +613,12 @@ export class HTTPResponse {
       });
 
       // Pipes the transform stream to the socket (ignore end).
-      this._bodyWritable.pipe(this.session.client.socket, {
-        end: false,
+      transform.pipe(this._bodyWritable, {
+        end: this._bodyWritable === this.session.client.socket ? false : true,
       });
+      
+      // Replaces the bodyw writable.
+      this._bodyWritable = transform;
     }
 
     // Sets the original body writable (needs to be accessed for async ops).
@@ -590,7 +657,9 @@ export class HTTPResponse {
   public sendBufferedBody(buffer: Buffer): Promise<void> {
     // Checks if we're allowed to do this.
     if (this._state !== HTTPResponseState.WritingResponseHeaders)
-      throw new Error(`Not allowed to write buffered body in state: ${this._state}`);
+      throw new Error(
+        `Not allowed to write buffered body in state: ${this._state}`
+      );
 
     // Returns the promise.
     return new Promise<void>(async (resolve, reject): Promise<void> => {
@@ -617,9 +686,9 @@ export class HTTPResponse {
    * @returns resolves once the response has been written.
    */
   public async sendEmptyBody(): Promise<void> {
-    await this._defaultHeaders();
-    await this._endHeaders();
-    await this._endBody();
+    await this.defaultHeaders();
+    await this.endHeaders();
+    await this.endBody();
   }
 
   /**
@@ -630,7 +699,9 @@ export class HTTPResponse {
   public sendStreamedBody(readable: Readable): Promise<void> {
     // Checks if we're allowed to do this.
     if (this._state !== HTTPResponseState.WritingResponseHeaders)
-      throw new Error(`Not allowed to write streamed body in state: ${this._state}`);
+      throw new Error(
+        `Not allowed to write streamed body in state: ${this._state}`
+      );
 
     // Returns the promise.
     return new Promise(async (resolve, reject): Promise<void> => {
@@ -638,8 +709,8 @@ export class HTTPResponse {
       await this._startBody();
 
       // Listens for the closing
-      this._originalBodyWritable!.on('error', reject);
-      this._originalBodyWritable!.on('close', resolve);
+      this._originalBodyWritable!.on("error", reject);
+      this._originalBodyWritable!.on("close", resolve);
 
       // Pipes the readable to the body writable.
       readable.pipe(this._bodyWritable!);
@@ -869,10 +940,10 @@ export class HTTPResponse {
 
     // Writes the status and the content type header.
     await this.status(status);
-    await this.header(
-      HTTPHeaderType.AcceptRanges,
-      new HTTPAcceptRangesHeader([HTTPAcceptRange.Bytes]).encode()
-    );
+    // await this.header(
+    //   HTTPHeaderType.AcceptRanges,
+    //   new HTTPAcceptRangesHeader([HTTPAcceptRange.Bytes]).encode()
+    // );
     await this.header(HTTPHeaderType.ContentType, httpContentType);
 
     // Checks if we should write the body, if not, don't.

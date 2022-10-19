@@ -26,6 +26,7 @@ import { useCompression } from "../middleware/compress";
 import { HTTPSettings } from "../HTTPSettings";
 import { HTTPSessionLogLevel } from "../HTTPSession";
 import { useVhost } from "../middleware/vhost";
+import { useCache } from "../middleware/cache";
 
 // Creates the nested router.
 const httpSimpleNestedRouter: HTTPSimpleRouter = new HTTPSimpleRouter();
@@ -58,6 +59,9 @@ httpSimpleRouter.get("/api/*", httpSimpleNestedRouter);
 // Example of static file serving with compression.
 httpSimpleRouter.get(
   "/static/*",
+  useCache({
+    ttl: 60000,
+  }),
   useCompression({
     match: /(\.html|\.js|\.css|\.jpg)$/, // Only compress files that match the expression.
     useDeflate: true,

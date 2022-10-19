@@ -26,6 +26,15 @@ export class HTTPSession {
   }
 
   /**
+   * Checks if we should log error.
+   * @param callback the callback to call if we should log.
+   * @returns the current instance.
+   */
+  public shouldError(callback: () => void): this {
+    return this.shouldLog(HTTPSessionLogLevel.Error, callback);
+  }
+
+  /**
    * A function to make logging take up less time.
    * @param level the desired level.
    * @param callback the callback.

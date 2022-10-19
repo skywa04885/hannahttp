@@ -40,6 +40,7 @@ import {
   IUseCookiesOptions,
 } from "./middleware/cookies";
 import { useVhost, IUseVhostOptions } from "./middleware/vhost";
+import { useCache, IUseCacheOptions } from "./middleware/cache";
 
 export {
   HTTPServer,
@@ -74,6 +75,8 @@ export {
   useLogging,
   useStatic,
   useCookies,
+  useCache,
+  IUseCacheOptions,
   useVhost,
   useUrlEncodedBodyParser,
   IBodyReaderOptions,

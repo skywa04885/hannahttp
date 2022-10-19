@@ -56,8 +56,12 @@ router.use(
 //  can be used by the nested router.
 const nestedRouter = new HTTPSimpleRouter();
 
-nestedRouter.get('/example', (match, req, res, next) => {
-  return res.text('Yes! It works...');
+nestedRouter.get('/example', async (match, req, res) => {
+  await res.text('Yes! It works...');
+
+  // Returning false will prevent the next piece of middelware
+  //  from being called, returning true will call the next one.
+  return false;
 });
 
 router.get('/nested/*', nestedRouter);
@@ -68,21 +72,26 @@ router.get('/nested/*', nestedRouter);
 router.get("/static/*", useStatic(path.join(__dirname, "static")));
 
 // Example of simple response.
-router.get("/", (match, req, res, next) => {
-  return res.text("Hello world!");
+router.get("/", async (match, req, res) => {
+  await res.text("Hello world!");
+  return false;
 });
 
 // Example showing parameters (starting with :) and the all match (at the end of uri with *).
 //  the match object will contain the parameters, and the remainder (the matched part by *).
-router.get("/:param1/:param2/:param3/*", (match, req, res, next) => {
-  return res.json({
+router.get("/:param1/:param2/:param3/*", async (match, req, res) => {
+  await res.json({
     match,
   });
+
+  return false;
 });
 
 // Here an all match is used to send a 404 page.
-router.any("/*", (match, req, res, next) => {
-  return res.text(`Page '${match.remainder}' not found!`, 404);
+router.any("/*", async (match, req, res) => {
+  await res.text(`Page '${match.remainder}' not found!`, 404);
+  
+  return false;
 });
 
 // Creates the server and starts listening.

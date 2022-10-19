@@ -1,185 +1,261 @@
-// import { Transform, Writable } from "stream";
-// import { HTTPAcceptEncoding } from "../headers/HTTPAcceptEncodingHeader";
-// import { HTTPContentEncoding } from "../headers/HTTPContentEncodingHeader";
-// import { HTTPContentType } from "../HTTPContentType";
-// import { HTTPHeaderType } from "../HTTPHeaderType";
-// import { HTTPPathMatch } from "../HTTPPathMatch";
-// import { HTTPRequest } from "../HTTPRequest";
-// import { HTTPResponse } from "../HTTPResponse";
-// import { HTTPRouterCallback, HTTPRouterNextFunction } from "../HTTPRouter";
+/*
+  HannaHTTP extremely fast and customizable HTTP server.
+  Copyright (C) Luke A.C.A. Rieff 2022
 
-// interface _ICacheResponse {
-//   status: number;
-//   buffer: Buffer;
-// }
+  This program is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or
+  (at your option) any later version.
 
-// interface _ICacheObject {
-//   value: _ICacheResponse;
-//   expire: number | null;
-//   timeout: NodeJS.Timeout | null;
-// }
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
 
-// class _Cache {
-//   protected _map: { [key: string]: _ICacheObject };
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
 
-//   /**
-//    * Constructs a new cache class.
-//    */
-//   public constructor() {
-//     this._map = {};
-//   }
+import { Transform } from "stream";
+import { HTTPHeaderType } from "../HTTPHeaderType";
+import { HTTPPathMatch } from "../HTTPPathMatch";
+import { HTTPRequest } from "../HTTPRequest";
+import { HTTPResponse, HTTPResponseEvent } from "../HTTPResponse";
+import { HTTPRouterCallback } from "../HTTPRouter";
+import { MemoryCache } from "../misc/MemoryCache";
 
-//   /**
-//    * Gets a value from the cache.
-//    * @param key the key to get the value from.
-//    * @returns either null or the value.
-//    */
-//   public get(key: string): _ICacheResponse | null {
-//     // Gets the object.
-//     const obj: _ICacheObject | null = this._map[key] ?? null;
+interface CachedResponseStatus {
+  code: number;
+  message?: string;
+}
 
-//     // If the object is null, return null
-//     //  else return the value.
-//     if (obj === null) return null;
-//     else return obj.value;
-//   }
+export type CachedResponseHeaders = [string, string][];
 
-//   /**
-//    * Puts a new value in the cache.
-//    * @param key the key of the value to put in the map.
-//    * @param value the value to put in the map.
-//    * @param ttl the time to live, after which it will be removed.
-//    * @returns the current instance.
-//    */
-//   public put(
-//     key: string,
-//     value: _ICacheResponse,
-//     ttl: number | null = null
-//   ): this {
-//     // Gets the old object.
-//     const old: _ICacheObject | null = this._map[key] ?? null;
+interface CachedResponse {
+  status: CachedResponseStatus;
+  headers: CachedResponseHeaders;
+  buffer: Buffer;
+}
 
-//     // If there is an old record, clear it's timeout
-//     //  we won't remove it, since it will be overwritten.
-//     if (old !== null && old.timeout !== null) clearTimeout(old.timeout);
+export interface IUseCacheOptions {
+  ttl?: number | null;
+  excludeHeaders?: HTTPHeaderType[];
+  uniqueHeaders?: HTTPHeaderType[];
+  uniqueSearch?: boolean;
+  uniqueHash?: boolean;
+}
 
-//     // Calculates the expiration time.
-//     const expire: number | null =
-//       ttl === null ? null : new Date().getTime() + ttl;
+const generateCacheKey = (
+  options: IUseCacheOptions,
+  request: HTTPRequest
+): string => {
+  const segments: string[] = [];
 
-//     // Creates the timer, this will be used to automatically
-//     //  clear something from the cache.
-//     const timeout: NodeJS.Timeout | null =
-//       ttl === null
-//         ? null
-//         : setTimeout(() => {
-//             delete this._map[key];
-//           }, ttl);
+  // Pushes the path to the segments.
+  segments.push(request.uri!.path);
 
-//     // Creates the new object to insert into the map.
-//     const obj: _ICacheObject = {
-//       expire,
-//       timeout,
-//       value,
-//     };
+  // If the options specify to have unique search params, include them.
+  if (options.uniqueSearch && Object.entries(request.uri!.search).length > 0) {
+    segments.push(
+      Object.entries(request.uri!.search)
+        .map(([key, value]: [string, string]): string => {
+          return `${key}=${encodeURIComponent(value)}`;
+        })
+        .join("&")
+    );
+  }
 
-//     // Inserts the new object into the map.
-//     this._map[key] = obj;
+  // If the options specify to have unique hashes, include them.
+  if (options.uniqueHash && request.uri!.hash) {
+    segments.push(request.uri?.hash!);
+  }
 
-//     // Returns the current instance.
-//     return this;
-//   }
-// }
+  // If the options specify to have unique headers, include them.
+  if (options.uniqueHeaders) {
+    for (const uniqueHeader of options.uniqueHeaders) {
+      // Gets the headers from the request, and if not there, don't add them.
+      const headers: string[] | null = request.headers!.getHeader(uniqueHeader);
+      if (!headers) continue;
 
-// export interface IUseCacheOptions {
-//   ttl?: number | null;
-// }
+      // Adds the header key/ value pair.
+      segments.push(
+        `${uniqueHeader}=${headers.map((v) => encodeURIComponent(v)).join(",")}`
+      );
+    }
+  }
 
-// export const useCache = (options?: IUseCacheOptions): HTTPRouterCallback => {
-//   // Assigns default options.
-//   options = Object.assign(
-//     {
-//       ttl: 600,
-//     },
-//     options
-//   );
+  // Joints the segments with hashes to produce the final key.
+  return segments.join("#");
+};
 
-//   // Creates the cache.
-//   const cache: _Cache = new _Cache();
+export const useCache = (options?: IUseCacheOptions): HTTPRouterCallback => {
+  // Assigns the default options.
+  options ??= {};
+  options.ttl ??= 60 * 1000;
+  options.uniqueSearch ??= false;
+  options.uniqueHash ??= false;
 
-//   // Returns the callback.
-//   return (
-//     match: HTTPPathMatch,
-//     request: HTTPRequest,
-//     response: HTTPResponse,
-//     next: HTTPRouterNextFunction
-//   ): any => {
-//     // Gets the request from the cache, and if it exists
-//     //  write the response to the client.
-//     const cachedResponse: _ICacheResponse | null =
-//       cache.get(request.rawUri!) ?? null;
-//     if (cachedResponse !== null) {
-//       // Performs some logging.
-//       request.session.shouldTrace(() =>
-//         request.session.trace(
-//           `useCache(): Got cache hit for ${request.rawUri}, and writing cached response.`
-//         )
-//       );
-//     }
+  // Initializes the headers to exclude if not done yet,
+  //  and adds the default headers to exclude.
+  options.excludeHeaders ??= [];
+  options.excludeHeaders.push(
+    HTTPHeaderType.Server,
+    HTTPHeaderType.Date,
+    HTTPHeaderType.Connection
+  );
 
-//     // Performs some logging.
-//     request.session.shouldTrace(() =>
-//       request.session.trace(
-//         `useCache(): did not find '${request.rawUri}' in cache, now caching current response ...`
-//       )
-//     );
+  // Initializes the headers that we use for uniqueness of
+  //  request and adds the default headers to include.
+  options.uniqueHeaders ??= [];
+  options.uniqueHeaders.push(
+    HTTPHeaderType.AcceptEncoding // Accept encoding changes how we'll respond.
+  );
 
-//     // Adds a transform stream to the body that will capture all the
-//     //  written data.
-//     const chunks: Buffer[] = [];
-//     response.addBodyTransform(
-//       new Transform({
-//         final: (callback: (error: Error | null | undefined) => void) => {
-//           // Concats all the chunks into a single buffer.
-//           const buffer: Buffer = Buffer.concat(chunks);
+  // Creates the memory cache.
+  const memoryCache: MemoryCache<string, CachedResponse> = new MemoryCache<
+    string,
+    CachedResponse
+  >();
 
-//           // Stores the result in the cache.
-//           cache.put(
-//             request.rawUri!,
-//             {
-//               buffer,
-//               status: response.sentStatus,
-//             },
-//             options!.ttl!
-//           );
+  // Returns the callback.
+  return async (
+    match: HTTPPathMatch,
+    request: HTTPRequest,
+    response: HTTPResponse
+  ): Promise<boolean> => {
+    // Creates the cache key.
+    const cacheKey: string = generateCacheKey(options!, request);
 
-//           // Logs that we've cached the request.
-//           request.session.shouldTrace(() =>
-//             request.session.trace(
-//               `useCache(): cached '${request.rawUri}', size: '${
-//                 buffer.length
-//               }', ttl: ${options!.ttl!}, status: ${response.sentStatus}`
-//             )
-//           );
+    {
+      // Gets the previously cached response.
+      const cachedResponse: CachedResponse | undefined =
+        memoryCache.get(cacheKey);
 
-//           // Calls the final callback.
-//           callback(null);
-//         },
-//         transform: (
-//           chunk: Buffer,
-//           encoding: BufferEncoding,
-//           callback: (error: Error | null | undefined, data: Buffer) => void
-//         ) => {
-//           // Adds the chunk to the chunks.
-//           chunks.push(chunk);
+      // If the response is not equal to null, write it.
+      if (cachedResponse) {
+        // Performs some logging.
+        request.session.shouldTrace(() =>
+          request.session.trace(
+            `useCache(): Got cache hit for ${cacheKey}, and writing cached response.`
+          )
+        );
 
-//           // Calls the callback immediately.
-//           callback(null, chunk);
-//         },
-//       })
-//     );
+        // First writes the status, then the headers and finally the body.
+        await response.status(
+          cachedResponse.status.code,
+          cachedResponse.status.message
+        );
+        for (const [key, value] of cachedResponse.headers)
+          await response.header(key, value);
+        await response.defaultHeaders();
+        await response.endHeaders();
+        await response.writeBodyImmediate(cachedResponse.buffer);
+        await response.endBody();
 
-//     // Calls the next middleware.
-//     return next();
-//   };
-// };
+        // Do not go to next middleware.
+        return false;
+      }
+    }
+
+    // Performs some logging.
+    request.session.shouldTrace(() =>
+      request.session.trace(
+        `useCache(): did not find '${cacheKey}' in cache, now caching current response ...`
+      )
+    );
+
+    // Some temp variables.
+    let interceptedStatus: CachedResponseStatus | undefined = undefined;
+    let interceptedHeaders: CachedResponseHeaders = [];
+
+    // Listens for written headers in the response (so we can intercept them).
+    response.on(
+      HTTPResponseEvent.Header,
+      (key: string, value: string): void => {
+        // Ignores a specific set of headers.
+        if (options!.excludeHeaders!.includes(key as HTTPHeaderType)) return;
+
+        // Pushes the intercepted header.
+        interceptedHeaders.push([key, value]);
+      }
+    );
+
+    // Listens for the statujs line in the response (so we can intercept it).
+    response.on(
+      HTTPResponseEvent.Status,
+      (code: number, message?: string): any =>
+        (interceptedStatus = { code, message })
+    );
+
+    // Adds a transform stream to the body that will capture all the
+    //  written data.
+    const chunks: Buffer[] = [];
+    response.addBodyTransform(
+      new Transform({
+        /**
+         * Gets called when the stream is about to end.
+         * @param callback the callback to call once the stream may be finished.
+         */
+        final: (callback: (error: Error | null | undefined) => void): void => {
+          // Makes sure the proper values have been intercepted, if not
+          //  log an error and finish the stream.
+          if (interceptedStatus === undefined) {
+            request.session.shouldError(() =>
+              request.session.error(
+                `useCache(): failed to cache response, did not intercept response line.`
+              )
+            );
+
+            return callback(null);
+          }
+
+          // Concats all the chunks into a single buffer.
+          const buffer: Buffer = Buffer.concat(chunks);
+
+          // Constructs the final cached response.
+          const cachedResponse: CachedResponse = {
+            status: interceptedStatus!,
+            headers: interceptedHeaders!,
+            buffer,
+          };
+
+          // Stores the result in the cache.
+          memoryCache.put(cacheKey, cachedResponse, options!.ttl!);
+
+          // Logs that we've cached the request.
+          request.session.shouldTrace(() =>
+            request.session.trace(
+              `useCache(): cached '${cacheKey}', size: '${
+                buffer.length
+              }', ttl: ${options!.ttl!}, status: ${cachedResponse.status}`
+            )
+          );
+
+          // Calls the final callback.
+          callback(null);
+        },
+        /**
+         * Handles a chunk and transforms it.
+         * @param chunk the chunk to handle.
+         * @param encoding the encoding of the chunk.
+         * @param callback the callback to call once processed.
+         */
+        transform: (
+          chunk: Buffer,
+          encoding: BufferEncoding,
+          callback: (error: Error | null | undefined, data: Buffer) => void
+        ) => {
+          // Adds the chunk to the chunks.
+          chunks.push(chunk);
+
+          // Calls the callback immediately.
+          callback(null, chunk);
+        },
+      }),
+      true
+    );
+
+    // Goes to the next middleware.
+    return true;
+  };
+};
