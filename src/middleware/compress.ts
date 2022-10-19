@@ -35,6 +35,7 @@ export interface IUseCompressionOptions {
   match?: RegExp;
   useGzip?: boolean;
   useDeflate?: boolean;
+  useBrotli?: boolean;
 }
 
 /**
@@ -51,6 +52,7 @@ export const useCompression = (
       match: null,
       useGzip: true,
       useDeflate: true,
+      useBrotli: true,
     },
     options
   );
@@ -95,7 +97,6 @@ export const useCompression = (
       );
 
       // Adds the transfer encoding and content encoding.
-      response.addTransferEncoding(HTTPTransferEncoding.Deflate);
       response.addContentEncoding(HTTPContentEncoding.Deflate);
 
       // Adds the transformation stream.
@@ -112,11 +113,23 @@ export const useCompression = (
       );
 
       // Adds the transfer encoding and content encoding.
-      response.addTransferEncoding(HTTPTransferEncoding.Gzip);
       response.addContentEncoding(HTTPContentEncoding.Gzip);
 
       // Adds the transformation stream.
       response.addBodyTransform(zlib.createGzip());
+    } else if (acceptEncodingHeader.includes(HTTPAcceptEncoding.Brotli) && options!.useBrotli) {
+      // Performs some logging.
+      response.session.shouldTrace(() =>
+        response.session.trace(
+          `useCompression(): compressing file '${pathMatch.remainder}' with br.`
+        )
+      );
+
+      // Adds the transfer encoding and content encoding.
+      response.addContentEncoding(HTTPContentEncoding.Brotli);
+
+      // Adds the transformation stream.
+      response.addBodyTransform(zlib.createBrotliCompress());
     }
 
     // Continues to the next handler.

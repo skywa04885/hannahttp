@@ -1,7 +1,7 @@
 import { HTTPCommaSeparatedValueHeader } from "./HTTPHeader";
 
 export enum HTTPContentEncoding {
-  Br = "br",
+  Brotli = "br",
   Compress = "compress",
   Deflate = "deflate",
   Gzip = "gzip",

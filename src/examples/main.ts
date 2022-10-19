@@ -66,6 +66,7 @@ httpSimpleRouter.get(
     match: /(\.html|\.js|\.css|\.jpg)$/, // Only compress files that match the expression.
     useDeflate: true,
     useGzip: true,
+    useBrotli: true,
   }),
   useStatic(path.join(__dirname, "static"))
 );

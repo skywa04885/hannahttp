@@ -5,6 +5,7 @@ export enum HTTPAcceptEncoding {
   Compress = "compress",
   Deflate = "deflate",
   Gzip = "gzip",
+  Brotli = "br",
 }
 
 export class HTTPAcceptEncodingHeader extends HTTPCommaSeparatedValueHeader<HTTPAcceptEncoding> {
