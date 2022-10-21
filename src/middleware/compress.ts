@@ -25,7 +25,7 @@ import {
   HTTPRouterNextFunction,
   HTTPSimpleRouterHandler,
 } from "../HTTPRouter";
-import zlib from "zlib";
+import zlib, { BrotliOptions, Gzip, ZlibOptions } from "zlib";
 import { match } from "assert";
 import { HTTPAcceptEncoding, HTTPAcceptEncodingHeader } from "../headers/HTTPAcceptEncodingHeader";
 import { HTTPTransferEncoding } from "../headers/HTTPTransferEncodingHeader";
@@ -36,6 +36,9 @@ export interface IUseCompressionOptions {
   useGzip?: boolean;
   useDeflate?: boolean;
   useBrotli?: boolean;
+  brotliOptions?: BrotliOptions;
+  gzipOptions?: ZlibOptions;
+  deflateOptions?: ZlibOptions;
 }
 
 /**
@@ -47,15 +50,10 @@ export const useCompression = (
   options?: IUseCompressionOptions
 ): HTTPRouterCallback => {
   // Assigns the default options.
-  options = Object.assign(
-    {
-      match: null,
-      useGzip: true,
-      useDeflate: true,
-      useBrotli: true,
-    },
-    options
-  );
+  options ??= {};
+  options.useBrotli ??= true;
+  options.useGzip ??= true;
+  options.useDeflate ??= true;
 
   return async (
     pathMatch: HTTPPathMatch,
@@ -100,7 +98,7 @@ export const useCompression = (
       response.addContentEncoding(HTTPContentEncoding.Deflate);
 
       // Adds the transformation stream.
-      response.addBodyTransform(zlib.createDeflate());
+      response.addBodyTransform(zlib.createDeflate(options?.deflateOptions));
     } else if (
       acceptEncodingHeader.includes(HTTPAcceptEncoding.Gzip) &&
       options!.useGzip
@@ -116,7 +114,7 @@ export const useCompression = (
       response.addContentEncoding(HTTPContentEncoding.Gzip);
 
       // Adds the transformation stream.
-      response.addBodyTransform(zlib.createGzip());
+      response.addBodyTransform(zlib.createGzip(options?.gzipOptions));
     } else if (acceptEncodingHeader.includes(HTTPAcceptEncoding.Brotli) && options!.useBrotli) {
       // Performs some logging.
       response.session.shouldTrace(() =>
@@ -129,7 +127,7 @@ export const useCompression = (
       response.addContentEncoding(HTTPContentEncoding.Brotli);
 
       // Adds the transformation stream.
-      response.addBodyTransform(zlib.createBrotliCompress());
+      response.addBodyTransform(zlib.createBrotliCompress(options?.brotliOptions));
     }
 
     // Continues to the next handler.

@@ -30,5 +30,6 @@ export enum HTTPHeaderType {
   Host = "host",
   AcceptRanges = "accept-ranges",
   ContentRange = "content-range",
-  Range = "Range",
+  Range = "range",
+  Location = "location",
 }

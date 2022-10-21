@@ -15,6 +15,4 @@ export interface IUseValidationNumberOptions {
   required?: boolean; 
 }
 
-export interface IUseValidationOptions {
-
-}
+// export const useBodyStringValidation = (field: string, )
