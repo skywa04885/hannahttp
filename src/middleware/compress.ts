@@ -16,20 +16,16 @@
   along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { HTTPHeaderType } from "../HTTPHeaderType";
-import { HTTPPathMatch } from "../HTTPPathMatch";
-import { HTTPRequest } from "../HTTPRequest";
-import { HTTPResponse } from "../HTTPResponse";
-import {
-  HTTPRouterCallback,
-  HTTPRouterNextFunction,
-  HTTPSimpleRouterHandler,
-} from "../HTTPRouter";
+import { HTTPHeaderType } from "../http/header";
+import { HTTPPathMatch } from "../router/path-match";
+import { HTTPRequest } from "../http/request";
+import { HTTPResponse } from "../http/response";
 import zlib, { BrotliOptions, Gzip, ZlibOptions } from "zlib";
 import { match } from "assert";
-import { HTTPAcceptEncoding, HTTPAcceptEncodingHeader } from "../headers/HTTPAcceptEncodingHeader";
-import { HTTPTransferEncoding } from "../headers/HTTPTransferEncodingHeader";
-import { HTTPContentEncoding } from "../headers/HTTPContentEncodingHeader";
+import { HTTPAcceptEncoding, HTTPAcceptEncodingHeader } from "../http/headers/accept-encoding";
+import { HTTPTransferEncoding } from "../http/headers/transfer-encoding";
+import { HTTPContentEncoding } from "../http/headers/content-encoding";
+import { HTTPSimpleRouterCallback } from "../router/simple-router";
 
 export interface IUseCompressionOptions {
   match?: RegExp;
@@ -48,7 +44,7 @@ export interface IUseCompressionOptions {
  */
 export const useCompression = (
   options?: IUseCompressionOptions
-): HTTPRouterCallback => {
+): HTTPSimpleRouterCallback => {
   // Assigns the default options.
   options ??= {};
   options.useBrotli ??= true;

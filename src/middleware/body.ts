@@ -17,16 +17,16 @@
 */
 
 import { request } from "http";
-import { HTTPContentType } from "../HTTPContentType";
-import { HTTPHeaderType } from "../HTTPHeaderType";
-import { HTTPPathMatch } from "../HTTPPathMatch";
+import { HTTPHeaderType } from "../http/header";
+import { HTTPPathMatch } from "../router/path-match";
 import {
   HTTPRequest,
   HTTPRequestBufferBody,
   HTTPRequestEvent,
-} from "../HTTPRequest";
-import { HTTPResponse } from "../HTTPResponse";
-import { HTTPRouter, HTTPRouterCallback, HTTPRouterNextFunction } from "../HTTPRouter";
+} from "../http/request";
+import { HTTPResponse } from "../http/response";
+import { HTTPMediaType } from "../http/headers/content-type";
+import { HTTPSimpleRouterCallback } from "../router/simple-router";
 
 export interface IBodyReaderOptions {}
 
@@ -37,7 +37,7 @@ export interface IBodyReaderOptions {}
  */
 export const useBodyReader = (
   options?: IBodyReaderOptions
-): HTTPRouterCallback => {
+): HTTPSimpleRouterCallback => {
   return async (
     match: HTTPPathMatch,
     request: HTTPRequest,
@@ -69,7 +69,7 @@ export interface IUseJsonBodyParserOptions {}
  */
 export const useJsonBodyParser = (
   options?: IUseJsonBodyParserOptions
-): HTTPRouterCallback => {
+): HTTPSimpleRouterCallback => {
   return async (
     match: HTTPPathMatch,
     request: HTTPRequest,
@@ -78,7 +78,7 @@ export const useJsonBodyParser = (
     // If the request body is not json, just go to the next callback.
     if (
       request.headers!.getSingleHeader(HTTPHeaderType.ContentType) !==
-      HTTPContentType.ApplicationJson
+      HTTPMediaType.ApplicationJson
     )
       return true;
 
@@ -105,7 +105,7 @@ export interface IUseUrlEncodedBodyParserOptions {}
  * @param options the options for the middleware.
  * @returns the callback that will process the body,
  */
-export const useUrlEncodedBodyParser = (options?: IUseUrlEncodedBodyParserOptions): HTTPRouterCallback =>  {
+export const useUrlEncodedBodyParser = (options?: IUseUrlEncodedBodyParserOptions): HTTPSimpleRouterCallback =>  {
   // Sets the default options.
   options = Object.assign({}, options);
 
@@ -118,7 +118,7 @@ export const useUrlEncodedBodyParser = (options?: IUseUrlEncodedBodyParserOption
     // If the request body is not json, just go to the next callback.
     if (
       request.headers!.getSingleHeader(HTTPHeaderType.ContentType) !==
-      HTTPContentType.ApplicationXWWWFormUrlencoded
+      HTTPMediaType.ApplicationXWWWFormUrlencoded
     )
       return true;
 

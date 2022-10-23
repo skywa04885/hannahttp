@@ -1,12 +1,11 @@
-import { HTTPHeaderType } from "../HTTPHeaderType";
-import { HTTPPathMatch } from "../HTTPPathMatch";
-import { HTTPRequest } from "../HTTPRequest";
-import { HTTPResponse } from "../HTTPResponse";
+import { HTTPHeaderType } from "../http/header";
+import { HTTPPathMatch } from "../router/path-match";
+import { HTTPRequest } from "../http/request";
+import { HTTPResponse } from "../http/response";
 import {
   HTTPRouter,
-  HTTPRouterCallback,
-  HTTPRouterNextFunction,
-} from "../HTTPRouter";
+} from "../router/base";
+import { HTTPSimpleRouterCallback } from "../router/simple-router";
 
 export interface IUseVhostOptions {}
 
@@ -21,7 +20,7 @@ export const useVhost = (
   host: string,
   router: HTTPRouter,
   options?: IUseVhostOptions
-): HTTPRouterCallback => {
+): HTTPSimpleRouterCallback => {
   // Assigns the default options.
   options = Object.assign({}, options);
 

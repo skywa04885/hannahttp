@@ -16,32 +16,25 @@
   along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { HTTPPathMatch } from "../router/path-match";
 import { HTTPRequest } from "../http/request";
 import { HTTPResponse } from "../http/response";
-import { HTTPSimpleRouterCallback } from "../router/simple-router";
+import { HTTPMethod } from "../http/method";
+import { HTTPPathMatcher } from "./path-matcher";
+import { HTTPPathMatch } from "./path-match";
 
-export interface ISimpleLoggerOptions {}
-
-/**
- * Constructs a piece of middleware to log requests.
- * @param options the options for the logger.
- * @returns the middleware to perform the simple logging.
- */
-export const useLogging = (options?: ISimpleLoggerOptions): HTTPSimpleRouterCallback => {
-  return async (
-    match: HTTPPathMatch,
+export class HTTPRouter {
+  /**
+   * Handles the given request.
+   * @param request the request to handle.
+   * @param response the response for the handled request.
+   * @param path the optional path for when we're dealing with vhosts.
+   * @returns a promise that resolves once the request is handled.
+   */
+  public async handle(
     request: HTTPRequest,
     response: HTTPResponse,
-  ): Promise<boolean> => {
-    console.info(`${request.method} ${request.rawUri!} ${request.version}:`);
-    for (const header of request.headers!.iterator()) {
-      if (Array.isArray(header.value)) {
-        console.info(`\t${header.key}: `);
-        for (const value of header.value) console.trace(`\t\t${value}`);
-      } else console.info(`\t${header.key}: ${header.value}`);
-    }
-
-    return true;
-  };
-};
+    path: string | null = null
+  ): Promise<void> {
+    throw new Error("Not implemented!");
+  }
+}

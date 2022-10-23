@@ -1,28 +1,23 @@
-import { HTTPServer, HTTPServerPlain } from "./HTTPServer";
-import { HTTPSettings } from "./HTTPSettings";
-import { HTTPRequest } from "./HTTPRequest";
-import { HTTPResponse } from "./HTTPResponse";
-import { HTTPSession, HTTPSessionLogLevel } from "./HTTPSession";
-import { HTTPPathMatch } from "./HTTPPathMatch";
-import { HTTPPathMatcher } from "./HTTPPathMatcher";
-import { HTTPClientSocket } from "./HTTPClientSocket";
-import { HTTPServerSocket, HTTPServerSocketEvent } from "./HTTPServerSocket";
-import { HTTPMethod } from "./HTTPMethod";
+import { HTTPServer, HTTPServerPlain } from "./server";
+import { HTTPSettings } from "./settings";
+import { HTTPRequest } from "./http/request";
+import { HTTPResponse } from "./http/response";
+import { HTTPSession, HTTPSessionLogLevel } from "./session";
+import { HTTPPathMatch } from "./router/path-match";
+import { HTTPPathMatcher } from "./router/path-matcher";
+import { HTTPClientSocket } from "./client-socket";
+import { HTTPServerSocket, HTTPServerSocketEvent } from "./server-socket";
+import { HTTPMethod } from "./http/method";
+import { HTTPRouter } from "./router/base";
+import { HTTPVersion } from "./http/version";
+import { HTTPURI } from "./http/uri";
+import { HTTPClientHandler } from "./client-handler";
+import { HTTPHeaderType } from "./http/header";
+import { HTTPHeaders } from "./http/headers";
 import {
-  HTTPSimpleRouter,
-  HTTPSimpleRouterElement,
-  HTTPSimpleRouterHandler,
-  HTTPRouterCallback,
-  HTTPRouterNextFunction,
-  HTTPRouter,
-  HTTPSimpleRouterMethod,
-} from "./HTTPRouter";
-import { HTTPVersion } from "./HTTPVersion";
-import { HTTPURI } from "./HTTPURI";
-import { HTTPClientHandler } from "./HTTPClientHandler";
-import { HTTPHeaderType } from "./HTTPHeaderType";
-import { HTTPHeaders } from "./HTTPHeaders";
-import { HTTPContentType } from "./HTTPContentType";
+  HTTPMediaType,
+  HTTPContentTypeHeader,
+} from "./http/headers/content-type";
 import {
   useBodyReader,
   useJsonBodyParser,
@@ -41,6 +36,14 @@ import {
 } from "./middleware/cookies";
 import { useVhost, IUseVhostOptions } from "./middleware/vhost";
 import { useCache, IUseCacheOptions } from "./middleware/cache";
+import {
+  HTTPSimpleRouter,
+  HTTPSimpleRouterCallback,
+  HTTPSimpleRouterElement,
+  HTTPSimpleRouterHandler,
+  HTTPSimpleRouterMethod,
+  httpSimpleRouterMethodFromHttpMethod,
+} from "./router/simple-router";
 
 export {
   HTTPServer,
@@ -57,18 +60,13 @@ export {
   HTTPMethod,
   HTTPServerSocket,
   HTTPServerSocketEvent,
-  HTTPSimpleRouter,
-  HTTPSimpleRouterElement,
-  HTTPSimpleRouterHandler,
-  HTTPRouterCallback,
-  HTTPRouterNextFunction,
   HTTPRouter,
-  HTTPSimpleRouterMethod,
   HTTPVersion,
   HTTPURI,
   HTTPHeaderType,
   HTTPHeaders,
-  HTTPContentType,
+  HTTPMediaType,
+  HTTPContentTypeHeader,
   useBodyReader,
   useJsonBodyParser,
   useCompression,
@@ -76,6 +74,12 @@ export {
   useStatic,
   useCookies,
   useCache,
+  HTTPSimpleRouter,
+  HTTPSimpleRouterCallback,
+  HTTPSimpleRouterElement,
+  HTTPSimpleRouterHandler,
+  HTTPSimpleRouterMethod,
+  httpSimpleRouterMethodFromHttpMethod,
   IUseCacheOptions,
   useVhost,
   useUrlEncodedBodyParser,

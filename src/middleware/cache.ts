@@ -17,12 +17,12 @@
 */
 
 import { Transform } from "stream";
-import { HTTPHeaderType } from "../HTTPHeaderType";
-import { HTTPPathMatch } from "../HTTPPathMatch";
-import { HTTPRequest } from "../HTTPRequest";
-import { HTTPResponse, HTTPResponseEvent } from "../HTTPResponse";
-import { HTTPRouterCallback } from "../HTTPRouter";
-import { MemoryCache } from "../misc/MemoryCache";
+import { HTTPHeaderType } from "../http/header";
+import { HTTPPathMatch } from "../router/path-match";
+import { HTTPRequest } from "../http/request";
+import { HTTPResponse, HTTPResponseEvent } from "../http/response";
+import { MemoryCache } from "../misc/memory-cache";
+import { HTTPSimpleRouterCallback } from "../router/simple-router";
 
 interface CachedResponseStatus {
   code: number;
@@ -67,7 +67,7 @@ const generateCacheKey = (
 
   // If the options specify to have unique hashes, include them.
   if (options.uniqueHash && request.uri!.hash) {
-    segments.push(request.uri?.hash!);
+    segments.push(request.uri!.hash!);
   }
 
   // If the options specify to have unique headers, include them.
@@ -88,7 +88,7 @@ const generateCacheKey = (
   return segments.join("#");
 };
 
-export const useCache = (options?: IUseCacheOptions): HTTPRouterCallback => {
+export const useCache = (options?: IUseCacheOptions): HTTPSimpleRouterCallback => {
   // Assigns the default options.
   options ??= {};
   options.ttl ??= 60 * 1000;
@@ -166,7 +166,7 @@ export const useCache = (options?: IUseCacheOptions): HTTPRouterCallback => {
 
     // Some temp variables.
     let interceptedStatus: CachedResponseStatus | undefined = undefined;
-    let interceptedHeaders: CachedResponseHeaders = [];
+    const interceptedHeaders: CachedResponseHeaders = [];
 
     // Listens for written headers in the response (so we can intercept them).
     response.on(

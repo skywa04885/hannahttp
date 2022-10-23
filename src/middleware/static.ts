@@ -16,13 +16,11 @@
   along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { fstat } from "fs";
 import path from "path";
-import { HTTPClientHandler } from "../HTTPClientHandler";
-import { HTTPPathMatch } from "../HTTPPathMatch";
-import { HTTPRequest } from "../HTTPRequest";
-import { HTTPResponse } from "../HTTPResponse";
-import { HTTPRouterCallback, HTTPRouterNextFunction } from "../HTTPRouter";
+import { HTTPPathMatch } from "../router/path-match";
+import { HTTPRequest } from "../http/request";
+import { HTTPResponse } from "../http/response";
+import { HTTPSimpleRouterCallback } from "../router/simple-router";
 
 export interface IServeFilesOptions {}
 
@@ -35,7 +33,7 @@ export interface IServeFilesOptions {}
 export const useStatic = (
   rootPath: string,
   options?: IServeFilesOptions
-): HTTPRouterCallback => {
+): HTTPSimpleRouterCallback => {
   return async (
     match: HTTPPathMatch,
     request: HTTPRequest,
@@ -57,14 +55,15 @@ export const useStatic = (
     )
       return true;
 
-    // Tries to write the file, if any error occurs log it, and just go to the next piece of middleware.
+    // Writes the file.
     try {
       await response.file(completePath);
-      return false;
-    } catch (e) {}
+    } catch (error) {
+      return true;
+    }
 
     // Goes to the next piece of middleware.
-    return true;
+    return false;
   };
 };
 

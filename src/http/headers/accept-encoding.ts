@@ -15,17 +15,19 @@
   You should have received a copy of the GNU General Public License
   along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
-export interface IUseValidationStringOptions {
-  match?: RegExp;
-  minLength?: number;
-  maxLength?: number;
-  allowedValue?: string[];
-  required?: boolean;
+
+import { HTTPCommaSeparatedValueHeaderBase } from "./base";
+
+export enum HTTPAcceptEncoding {
+  Chunked = "chunked",
+  Compress = "compress",
+  Deflate = "deflate",
+  Gzip = "gzip",
+  Brotli = "br",
 }
 
-export interface IUseValidationNumberOptions {
-  min?: number;
-  max?: number;
-  allowedValues?: number[];
-  required?: boolean; 
+export class HTTPAcceptEncodingHeader extends HTTPCommaSeparatedValueHeaderBase<HTTPAcceptEncoding> {
+  public constructor() {
+    super();
+  }
 }

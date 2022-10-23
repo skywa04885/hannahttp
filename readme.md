@@ -1,10 +1,41 @@
 # HannaHTTP
 
 HannaHTTP is a work-in-progress simple express.js alternative.
+Up to this point, it's already better than express.js due to the internal usage of promises,
+so no callback hell, and also less-hacky methods of transforming the response body. Further
+it automatically picks the proper transfer encoding, to speed up the process, and prevent
+the server from having too large buffers. With this I mean, that if it detects transform
+streams or an unknown size, it will automatically write the response chunked.
+
+Also one thing that sets this apart from express, is the way requests are handled. In
+express the parameters are stored in the request object, which obviously doesn't make any
+sense, because a request can match multiple pieces of middleware, of which each has
+different patterns and other paramteres, which is why there is a separate match object
+given to each piece of middleware, containing the paramters and remainder of the match.
+With remainder I mean the remaining part of the URI when the user has used the * wildcard
+at the end of the matching path.
 
 ## Dependencies
 
 1. consolidate
+## Features
+
+1. Full-Blown HTTP Router with wildcards.
+1. Async API for everything.
+## Built-In Middleware
+
+The library contains many pieces of middleware that will supply the user (you)
+with all the built in funcionality you could desire. This prevents you from having
+to install crappy external libraries (which express.js usually requires you to do).
+
+1. Compression (Compresses the response with either: Deflate, GZIP or Brotli).
+1. Body Reader (Reads the request body based on the Content-Length).
+1. Body JSON Parser (Parses the read request body to json).
+1. Body X-WWW-FORM-URIENCODED Parser (Parses form data from the read request body).
+1. Cache (Caches complete responses for a given amount of time).
+1. Static File Serving (Serves static files in the given directory).
+1. LetsEncrypt Certbot (Generates and maintains letsencrypt certificates).
+1. Virtual Hosting (Calls different routers based on the requested host).
 
 ## Example
 

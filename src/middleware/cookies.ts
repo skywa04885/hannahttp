@@ -1,8 +1,26 @@
-import { HTTPHeaderType } from "../HTTPHeaderType";
-import { HTTPPathMatch } from "../HTTPPathMatch"
-import { HTTPRequest } from "../HTTPRequest"
-import { HTTPResponse } from "../HTTPResponse"
-import { HTTPRouterCallback, HTTPRouterNextFunction } from "../HTTPRouter"
+/*
+  HannaHTTP extremely fast and customizable HTTP server.
+  Copyright (C) Luke A.C.A. Rieff 2022
+
+  This program is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or
+  (at your option) any later version.
+
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+import { HTTPHeaderType } from "../http/header";
+import { HTTPPathMatch } from "../router/path-match"
+import { HTTPRequest } from "../http/request"
+import { HTTPResponse } from "../http/response"
+import { HTTPSimpleRouterCallback } from "../router/simple-router";
 
 export interface IUseCookiesOptions {}
 
@@ -15,7 +33,7 @@ export interface IUseCookiesBody {
  * @param options the options for the piece of middleware.
  * @returns the piece of middleware used to parse cookies.
  */
-export const useCookies = (options?: IUseCookiesOptions): HTTPRouterCallback => {
+export const useCookies = (options?: IUseCookiesOptions): HTTPSimpleRouterCallback => {
   options = Object.assign({}, options);
 
   return async (

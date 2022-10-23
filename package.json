@@ -6,7 +6,8 @@
   "types": "dist/index.ts.d",
   "scripts": {
     "build": "tsc",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run lint && npm run build",
+    "lint": "npx eslint src/**/*.ts"
   },
   "author": "",
   "license": "GPL-3.0",
@@ -20,7 +21,10 @@
   "homepage": "https://github.com/skywa04885/hannahttp",
   "devDependencies": {
     "@types/consolidate": "^0.14.1",
-    "@types/node": "^18.8.1"
+    "@types/node": "^18.8.1",
+    "@typescript-eslint/eslint-plugin": "^5.40.1",
+    "@typescript-eslint/parser": "^5.40.1",
+    "eslint": "^8.26.0"
   },
   "dependencies": {
     "consolidate": "^0.16.0"

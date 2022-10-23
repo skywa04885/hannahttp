@@ -15,17 +15,16 @@
   You should have received a copy of the GNU General Public License
   along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
-export interface IUseValidationStringOptions {
-  match?: RegExp;
-  minLength?: number;
-  maxLength?: number;
-  allowedValue?: string[];
-  required?: boolean;
+
+import { HTTPSessionLogLevel } from "./session";
+
+export interface IHTTPTemplatingSettings {
+  engine?: string;
+  views?: string;
 }
 
-export interface IUseValidationNumberOptions {
-  min?: number;
-  max?: number;
-  allowedValues?: number[];
-  required?: boolean; 
+export class HTTPSettings {
+  public sessionLogLevel: HTTPSessionLogLevel = HTTPSessionLogLevel.Error;
+  public templating?: IHTTPTemplatingSettings;
+  public serverName?: string;
 }
