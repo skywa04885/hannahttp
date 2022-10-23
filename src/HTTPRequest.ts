@@ -16,8 +16,13 @@
   along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { ByteLengthQueuingStrategy } from "node:stream/web";
 import { EventEmitter, Writable } from "stream";
+import {
+  HTTPError,
+  HTTPSyntaxError,
+  HTTPSyntaxErrorSource,
+  HTTPVersionNotSupportedError,
+} from "./HTTPError";
 import { HTTPHeaders } from "./HTTPHeaders";
 import { HTTPMethod, isValidHttpMethod } from "./HTTPMethod";
 import { HTTPSession } from "./HTTPSession";
@@ -37,10 +42,18 @@ export class HTTPRequestBody {
    */
   public constructor() {}
 
+  /**
+   *
+   * @param chunk the chunk to update the request body with.
+   * @returns the number of bytes that have been consumed.
+   */
   public update(chunk: Buffer): number {
     return 0;
   }
 
+  /**
+   * If the current body is saturated (meaing if there shouldn't be read anything more).
+   */
   public get saturated() {
     return true;
   }
@@ -61,6 +74,11 @@ export class HTTPRequestBufferBody extends HTTPRequestBody {
     this.bufferLevel = 0;
   }
 
+  /**
+   * Updates the request body.
+   * @param chunk the chunk to update the request body with.
+   * @returns the number of bytes that have been consumed.
+   */
   public update(chunk: Buffer): number {
     // Calculates the number of bytes to be read.
     const neededBytes: number = this.expectedSize - this.bufferLevel;
@@ -76,6 +94,9 @@ export class HTTPRequestBufferBody extends HTTPRequestBody {
     return consumableBytes;
   }
 
+  /**
+   * Checks if the request body has been saturated.
+   */
   public get saturated(): boolean {
     return this.bufferLevel === this.expectedSize;
   }
@@ -86,54 +107,47 @@ export class HTTPRequestBufferBody extends HTTPRequestBody {
 //  which will start processing the entire buffer, and incomming request data.
 
 export enum HTTPRequestEvent {
-  LineLoaded = "__line",
-  HeadersLoaded = "__headers",
-  Finished = "__finished",
-  BodyLoaded = "__body",
+  LineLoaded = "LineLoaded",
+  HeadersLoaded = "HeadersLoaded",
+  Finished = "Finished",
+  BodyLoaded = "BodyLoaded",
 }
 
-export class HTTPRequest<T = any> extends Writable {
+export class HTTPRequest<T = any> extends EventEmitter {
   protected _state: HTTPRequestState;
-  protected _buffer: Buffer | null;
+  protected _buffer?: Buffer;
+  public method: HTTPMethod = HTTPMethod.GET;
+  public version: HTTPVersion = HTTPVersion.V1_1;
+  public uri?: HTTPURI;
+  public rawUri?: string;
+  public headers: HTTPHeaders = new HTTPHeaders();
+  public body?: HTTPRequestBody;
+  public u: { [key: string]: any };
 
-  public method: HTTPMethod | null;
-  public uri: HTTPURI | null;
-  public rawUri: string | null;
-  public version: HTTPVersion | null;
-
-  public headers: HTTPHeaders | null;
-
-  public body: HTTPRequestBody | null;
-
-  public u: { [key: string]: any }; // The user-data object, can contain anything the user would want.
-
+  /**
+   * Constructs a new HTTP request.
+   * @param session the session of which the request belongs to.
+   */
   public constructor(public readonly session: HTTPSession) {
     super();
 
+    // Initializes some variables.
     this._state = HTTPRequestState.REQUEST;
-    this._buffer = null;
-
-    this.method = null;
-    this.uri = null;
-    this.rawUri = null;
-    this.version = null;
-
-    this.headers = null;
-
-    this.body = null;
-
     this.u = {};
   }
 
-  public reset() {
+  /**
+   * Begins processing the next request inside of the received buffer.
+   */
+  public next() {
     // Updates the state.
     this._state = HTTPRequestState.REQUEST;
-    this.method = null;
-    this.uri = null;
-    this.rawUri = null;
-    this.version = null;
-    this.headers = null;
-    this.body = null;
+    this.method = HTTPMethod.GET;
+    this.uri = undefined;
+    this.rawUri = undefined;
+    this.version = HTTPVersion.V1_1;
+    this.headers = new HTTPHeaders();
+    this.body = undefined;
     this.u = {};
 
     // Calls the update event because we want to process old chunks.
@@ -149,7 +163,10 @@ export class HTTPRequest<T = any> extends Writable {
     // Finds the separator index inside the raw header string, if it is not there throw an error.
     const separatorIndex: number = headerString.indexOf(":");
     if (separatorIndex === -1) {
-      throw new Error("Invalid HTTP header: missing ':'!");
+      throw new HTTPSyntaxError(
+        HTTPSyntaxErrorSource.RequestHeadersParser,
+        "Invalid HTTP header: missing ':'!"
+      );
     }
 
     // Gets the key and the value string.
@@ -160,7 +177,10 @@ export class HTTPRequest<T = any> extends Writable {
 
     // Validates the key and the value (makes sure they're not empty.
     if (keyString.length === 0 || valueString.length === 0) {
-      throw new Error("Invalid HTTP header: invalid key/ value!");
+      throw new HTTPSyntaxError(
+        HTTPSyntaxErrorSource.RequestHeadersParser,
+        "Invalid HTTP header: invalid key/ value!"
+      );
     }
 
     // Returns the results.
@@ -171,15 +191,15 @@ export class HTTPRequest<T = any> extends Writable {
    * Reads a single line from the internal buffer.
    * @returns the line read from the internal buffer.
    */
-  protected readLine(): Buffer | null {
+  protected readLine(): Buffer | undefined {
     const separator: string = "\r\n";
 
     // If there is no buffer, return.
-    if (this._buffer === null) return null;
+    if (!this._buffer) return undefined;
 
     // If there is no newline yet, return.
     const separatorIndex: number = this._buffer.indexOf(separator, 0, "utf-8");
-    if (separatorIndex === -1) return null;
+    if (separatorIndex === -1) return undefined;
 
     // Gets the newline from the buffer.
     const line: Buffer = Buffer.alloc(separatorIndex);
@@ -187,7 +207,7 @@ export class HTTPRequest<T = any> extends Writable {
 
     // Checks if there should be anything remaining in the buffer, if not null it.
     if (separatorIndex + separator.length === this._buffer.length)
-      this._buffer = null;
+      this._buffer = undefined;
     else {
       // Copies the remainder of the internal buffer.
       const buffer: Buffer = Buffer.alloc(
@@ -209,10 +229,10 @@ export class HTTPRequest<T = any> extends Writable {
    */
   protected updateRequest(): boolean {
     // Reads a single line from the internal buffer.
-    const line: Buffer | null = this.readLine();
+    const line: Buffer | undefined = this.readLine();
 
     // If there is no line yet, return true to break and wait for next update.
-    if (line === null) return true;
+    if (!line) return true;
 
     // Gets the string version of the line, so we can then parse it.
     const lineString: string = line.toString("utf-8");
@@ -221,7 +241,8 @@ export class HTTPRequest<T = any> extends Writable {
     //  if there are less or more than three segments, the request is invalid.
     const lineStringSegments: string[] = lineString.split(" ");
     if (lineStringSegments.length !== 3) {
-      throw new Error(
+      throw new HTTPSyntaxError(
+        HTTPSyntaxErrorSource.RequestLineParser,
         `Invalid HTTP request line: segment count in request line not equal to 3!`
       );
     }
@@ -232,13 +253,12 @@ export class HTTPRequest<T = any> extends Writable {
 
     // Makes sure the http method and version are valid.
     if (!isValidHttpMethod(methodString)) {
-      throw new Error(
+      throw new HTTPSyntaxError(
+        HTTPSyntaxErrorSource.RequestLineParser,
         `Invalid HTTP request line: unrecognized http method '${methodString}'`
       );
     } else if (!isValidHttpVersion(versionString)) {
-      throw new Error(
-        `Invalid HTTP version line: unrecognized http version '${versionString}'`
-      );
+      throw new HTTPVersionNotSupportedError(versionString);
     }
 
     // Parses the request URI.
@@ -264,10 +284,10 @@ export class HTTPRequest<T = any> extends Writable {
    */
   protected updateHeaders(): boolean {
     // Reads a single line from the internal buffer.
-    const line: Buffer | null = this.readLine();
+    const line: Buffer | undefined = this.readLine();
 
     // If there is no line yet, return true to break and wait for next update.
-    if (line === null) return true;
+    if (!line) return true;
 
     // Gets the line string.
     const lineString: string = line.toString("utf-8");
@@ -281,16 +301,13 @@ export class HTTPRequest<T = any> extends Writable {
       this.emit(HTTPRequestEvent.HeadersLoaded);
 
       // Checks if there is an body to be expected, if not finish the request.
-      if (this.body === null) {
+      if (!this.body) {
         this.emit(HTTPRequestEvent.Finished);
       }
 
       // Returns false to continue.
       return false;
     }
-
-    // If there is no header object yet, create new one.
-    if (this.headers === null) this.headers = new HTTPHeaders();
 
     // Parses the individual header.
     this.headers.addHeader(...HTTPRequest._parseHttpHeader(lineString));
@@ -305,16 +322,16 @@ export class HTTPRequest<T = any> extends Writable {
    */
   protected updateBody(): boolean {
     // Makes sure there is a body and a buffer.
-    if (this.body === null)
-      throw new Error("Could not update body: no body instance.");
-    if (this._buffer === null)
-      throw new Error("Could not update body: no buffer instance.");
+    if (!this.body)
+      throw new HTTPError("Could not update body: no body instance.");
+    if (!this._buffer)
+      throw new HTTPError("Could not update body: no buffer instance.");
 
     // Updates the body.
     const consumedBytes: number = this.body.update(this._buffer);
 
     // Removes the consumed bytes of the internal buffer.
-    if (this._buffer.length === consumedBytes) this._buffer = null;
+    if (this._buffer.length === consumedBytes) this._buffer = undefined;
     else {
       const buffer: Buffer = Buffer.alloc(this._buffer.length - consumedBytes);
       this._buffer.copy(buffer, 0, consumedBytes);
@@ -369,24 +386,17 @@ export class HTTPRequest<T = any> extends Writable {
    * @param encoding the encoding of the chunk.
    * @param callback the callback to call when we can fetch new data.
    */
-  public _write(
-    chunk: any,
-    encoding: BufferEncoding,
-    callback: (error?: Error | null | undefined) => void
-  ): void {
+  public write(chunk: any): void {
     // Makes sure the chunk is a buffer.
     if (!(chunk instanceof Buffer))
-      throw new Error("Chunk must be a buffer instance!");
+      throw new HTTPError("Chunk must be a buffer instance!");
 
     // Concats the buffer or makes it the primary buffer.
-    if (this._buffer === null) this._buffer = chunk;
+    if (!this._buffer) this._buffer = chunk;
     else this._buffer = Buffer.concat([this._buffer, chunk]);
 
     // Updates the request.
     this.update();
-
-    // Fetches the next chunk.
-    callback(null);
   }
 
   /**
@@ -396,8 +406,8 @@ export class HTTPRequest<T = any> extends Writable {
   public loadBufferBody(expectedSize: number): Promise<void> {
     return new Promise<void>((resolve, reject) => {
       // Makes sure there is no body being loaded yet.
-      if (this.body !== null) {
-        throw new Error(
+      if (this.body) {
+        throw new HTTPError(
           "Cannot load buffer body: request already loaded/loading other body!"
         );
       }

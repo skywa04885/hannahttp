@@ -31,10 +31,6 @@ export class HTTPServer {
   ) {}
 
   protected _onClientConnected(clientSocket: HTTPClientSocket): void {
-
-    clientSocket.socket.on('error', (err: Error): void => {
-      console.log(err);
-    });
     HTTPClientHandler.fromClientAndServer(clientSocket, this);
   }
 }

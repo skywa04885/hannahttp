@@ -74,7 +74,7 @@ const generateCacheKey = (
   if (options.uniqueHeaders) {
     for (const uniqueHeader of options.uniqueHeaders) {
       // Gets the headers from the request, and if not there, don't add them.
-      const headers: string[] | null = request.headers!.getHeader(uniqueHeader);
+      const headers: string[] | undefined = request.headers!.getHeader(uniqueHeader);
       if (!headers) continue;
 
       // Adds the header key/ value pair.

@@ -49,10 +49,10 @@ export class HTTPHeaders {
     key = key.toLowerCase();
 
     // Gets the current value of the header.
-    const header: string[] | string | null = this.headers[key] ?? null;
+    const header: string[] | string | undefined = this.headers[key] ?? undefined;
 
     // Checks the current value of the header, and changes it.
-    if (header === null) this.headers[key] = value;
+    if (!header) this.headers[key] = value;
     else if (Array.isArray(header)) header.push(value);
     else this.headers[key] = [header, value];
 
@@ -76,15 +76,15 @@ export class HTTPHeaders {
    * @param key the key of the header to get.
    * @returns the header value.
    */
-  public getHeader(key: string, transform: boolean = true): string[] | null {
+  public getHeader(key: string, transform: boolean = true): string[] | undefined {
     // Transforms the key.
     key = key.toLowerCase();
 
     // Gets the header.
-    const header: string | string[] | null = this.headers[key] ?? null;
+    const header: string | string[] | undefined = this.headers[key];
     
-    // Returns the header, and makes sure it's either null or an array.
-    if (header === null) return null;
+    // Returns the header, and makes sure it's either undefined or an array.
+    if (!header) return undefined;
     else if (Array.isArray(header)) return header;
     else return [ header ];
   }
@@ -100,16 +100,16 @@ export class HTTPHeaders {
     key: string,
     index: number = 0,
     transform: boolean = true
-  ): string | null {
+  ): string | undefined {
     // Transforms the key.
     key = key.toLowerCase();
 
     // Gets the current value of the header.
-    const header: string[] | string | null = this.headers[key] ?? null;
+    const header: string[] | string | undefined = this.headers[key];
 
     // Checks the type of header value, and returns the appropiate kind.
-    if (header === null) return null;
-    else if (Array.isArray(header)) return header[index] ?? null;
+    if (!header) return undefined;
+    else if (Array.isArray(header)) return header[index];
     else return header;
   }
 
@@ -125,11 +125,11 @@ export class HTTPHeaders {
     }
   }
 
-  public getSingleTypedHeader(key: string, index: number = 0, transform: boolean = true): HTTPHeader | null {
-    const raw: string | null = this.getSingleHeader(key, index, transform);
-    if (raw === null) return null;
+  public getSingleTypedHeader(key: string, index: number = 0, transform: boolean = true): HTTPHeader | undefined {
+    const raw: string | undefined = this.getSingleHeader(key, index, transform);
+    if (!raw) return undefined;
 
-    let header: HTTPHeader | null = null;
+    let header: HTTPHeader | undefined;
     switch (key) {
       case HTTPHeaderType.ContentRange:
         header = HTTPContentRangeHeader.decode(raw);

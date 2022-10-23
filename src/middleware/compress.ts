@@ -74,9 +74,9 @@ export const useCompression = (
     }
 
     // Gets the accept encoding header value, and if it is not there just call the next handler.
-    const rawAcceptEncodingHeaderValue: string | null =
+    const rawAcceptEncodingHeaderValue: string | undefined =
       request.headers!.getSingleHeader(HTTPHeaderType.AcceptEncoding);
-    if (rawAcceptEncodingHeaderValue === null) return true;
+    if (!rawAcceptEncodingHeaderValue) return true;
 
     // Parses the accept encoding header.
     const acceptEncodingHeader: HTTPAcceptEncodingHeader =

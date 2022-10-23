@@ -19,13 +19,14 @@
 import { HTTPSessionLogLevel } from "./HTTPSession";
 
 export interface IHTTPTemplatingSettings {
-  engine: string | null;
-  views: string | null;
+  engine?: string;
+  views?: string;
 }
 
 export class HTTPSettings {
   public sessionLogLevel: HTTPSessionLogLevel = HTTPSessionLogLevel.Error;
-  public templating: IHTTPTemplatingSettings | null = null;
+  public templating?: IHTTPTemplatingSettings;
+  public serverName?: string;
 
   public constructor() {}
 }

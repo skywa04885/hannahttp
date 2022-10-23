@@ -35,10 +35,10 @@ export const useVhost = (
     response: HTTPResponse,
   ): Promise<boolean> => {
     // Gets the header, and if not there, continue.
-    let requestHost: string | null = request.headers!.getSingleHeader(
+    let requestHost: string | undefined = request.headers!.getSingleHeader(
       HTTPHeaderType.Host
     );
-    if (requestHost === null) return true;
+    if (!requestHost) return true;
 
     // Cleans the host up, so we can easily compare it.
     requestHost = requestHost.trim().toLowerCase();

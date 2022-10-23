@@ -19,6 +19,7 @@
 import fs from "fs";
 import util from "util";
 import path from "path";
+import os from "os";
 import consolidate from "consolidate";
 import { HTTPContentType } from "./HTTPContentType";
 import { HTTPHeaderType } from "./HTTPHeaderType";
@@ -33,11 +34,11 @@ import {
   HTTPContentEncodingHeader,
 } from "./headers/HTTPContentEncodingHeader";
 import { HTTPRequest } from "./HTTPRequest";
-import {
-  HTTPAcceptRange,
-  HTTPAcceptRangesHeader,
-} from "./headers/HTTPAcceptRangesHeader";
 import { HTTPRangeHeader } from "./headers/HTTPRangeHeader";
+import {
+  HTTPConnectionPreference,
+  HTTPConnectionPreferenceHeader,
+} from "./headers/HTTPConnectionHeader";
 
 export enum HTTPResponseState {
   WritingResponseLine = 0,
@@ -75,18 +76,20 @@ export enum HTTPResponseEvent {
 export class HTTPResponse extends EventEmitter {
   protected _excludeBody: boolean = false;
   protected _state: HTTPResponseState = HTTPResponseState.WritingResponseLine;
-  protected _bodyWritable: Writable | null = null;
-  protected _originalBodyWritable: Writable | null = null;
+  protected _bodyWritable?: Writable;
+  protected _originalBodyWritable?: Writable;
 
-  protected _bodySize: number | null = null;
-  protected _enqueuedHeaders: [string, string][] | null = null;
-  protected _rawBodyTransforms: Transform[] | null = null;
-  protected _bodyTransforms: Transform[] | null = null;
+  protected _bodySize?: number;
+  protected _enqueuedHeaders?: [string, string][];
+  protected _rawBodyTransforms?: Transform[];
+  protected _bodyTransforms?: Transform[];
 
-  protected _transferEncoding: HTTPTransferEncodingHeader | null = null;
-  protected _contentEncoding: HTTPContentEncodingHeader | null = null;
+  protected _transferEncoding?: HTTPTransferEncodingHeader;
+  protected _contentEncoding?: HTTPContentEncodingHeader;
+  protected _connectionPreferece: HTTPConnectionPreferenceHeader =
+    new HTTPConnectionPreferenceHeader([HTTPConnectionPreference.KeepAlive]);
 
-  protected _sentStatus: number | null = null;
+  protected _sentStatus?: number;
 
   public constructor(
     public readonly request: HTTPRequest,
@@ -103,22 +106,21 @@ export class HTTPResponse extends EventEmitter {
    * If the current response has enqueued headers.
    */
   public get hasEnqueuedHeaders(): boolean {
-    return this._enqueuedHeaders !== null;
+    return !!this._enqueuedHeaders;
   }
 
   /**
    * If the current response has body transforms.
    */
   public get hasBodyTransforms(): boolean {
-    return this._bodyTransforms !== null;
+    return !!this._bodyTransforms;
   }
 
   /**
    * Gets the sent status code.
    */
   public get sentStatus(): number {
-    if (this._sentStatus === null) throw new Error("this._sentStatus is null!");
-
+    if (!this._sentStatus) throw new Error("this._sentStatus is null!");
     return this._sentStatus;
   }
 
@@ -137,6 +139,21 @@ export class HTTPResponse extends EventEmitter {
   //////////////////////////////////////////////////
   // Instance Methods
   //////////////////////////////////////////////////
+
+  /**
+   * Sets the connection preference.
+   * @param preference the connection preference to set.
+   * @returns the current instanec.
+   */
+  public setConnectionPreference(preference: HTTPConnectionPreference): this {
+    // Sets the connection preference.
+    this._connectionPreferece = new HTTPConnectionPreferenceHeader([
+      preference,
+    ]);
+
+    // Returns the current instance.
+    return this;
+  }
 
   /**
    * Adds a new transfer encoding.
@@ -216,10 +233,7 @@ export class HTTPResponse extends EventEmitter {
    * @param message the message to send.
    * @returns the current instance.
    */
-  public async status(
-    code: number,
-    message: string | null = null
-  ): Promise<void> {
+  public async status(code: number, message?: string): Promise<void> {
     // Makes sure we're in the proper state.
     if (this._state !== HTTPResponseState.WritingResponseLine)
       throw new Error("Response status has already been sent!");
@@ -231,7 +245,7 @@ export class HTTPResponse extends EventEmitter {
     this.emit(HTTPResponseEvent.Status, code, message);
 
     // If the message has not been given, get one of the default ones.
-    if (message === null) message = HTTPResponse._getMessageForStatusCode(code);
+    if (!message) message = HTTPResponse._getMessageForStatusCode(code);
 
     // Constructs and writes the response line.
     const responseLineString: string = `${this.request.version} ${code} ${message}\r\n`;
@@ -250,13 +264,22 @@ export class HTTPResponse extends EventEmitter {
    * @returns a promise that resolves once written.
    */
   public async defaultHeaders(): Promise<void> {
+    // Constructs the server.
+    let server: string | undefined = this.session.server.settings.serverName;
+    if (!server) {
+      server = `HannaHTTP (System: ${os.hostname()}, Arch: ${os.arch()}, Platform: ${os.platform()})`;
+    }
+
     // Sends the truely default headers.
     await this.header(HTTPHeaderType.Date, new Date().toUTCString());
-    await this.header(HTTPHeaderType.Server, "HannaHTTP");
-    await this.header(HTTPHeaderType.Connection, "keep-alive");
+    await this.header(HTTPHeaderType.Server, server);
+    await this.header(
+      HTTPHeaderType.Connection,
+      this._connectionPreferece.encode()
+    );
 
     // If content encoding there, write it.
-    if (this._contentEncoding !== null) {
+    if (this._contentEncoding) {
       await this.header(
         HTTPHeaderType.ContentEncoding,
         this._contentEncoding.encode()
@@ -264,7 +287,7 @@ export class HTTPResponse extends EventEmitter {
     }
 
     // If transfer encoding there, write it.
-    if (this._transferEncoding !== null) {
+    if (this._transferEncoding) {
       await this.header(
         HTTPHeaderType.TransferEncoding,
         this._transferEncoding.encode()
@@ -300,7 +323,7 @@ export class HTTPResponse extends EventEmitter {
   public async header(key: string, value: string): Promise<void> {
     // If we're in the response line state (maybe during middleware) enqueue the headers.
     if (this._state === HTTPResponseState.WritingResponseLine) {
-      if (this._enqueuedHeaders === null) this._enqueuedHeaders = [];
+      this._enqueuedHeaders ??= [];
       this._enqueuedHeaders.push([key, value]);
       return;
     }
@@ -380,7 +403,7 @@ export class HTTPResponse extends EventEmitter {
         throw new Error(`Cannot write body in state: ${this._state}`);
 
       // Makes sure the body writable is there.
-      if (this._bodyWritable === null)
+      if (!this._bodyWritable)
         throw new Error("Body writable must be defined!");
 
       // Adds listeners.
@@ -443,7 +466,7 @@ export class HTTPResponse extends EventEmitter {
    */
   protected _shouldUseChunking(): boolean {
     // If the body size is null, just use chuking.
-    if (this._bodySize === null) return true;
+    if (!this._bodySize) return true;
 
     // If the body size is known, but there are transform streams
     //  enqueued then we'll go for chunking.
@@ -486,9 +509,9 @@ export class HTTPResponse extends EventEmitter {
       this.addTransferEncoding(HTTPTransferEncoding.Chunked);
     } else {
       // Makes sure the body size is there.
-      if (this._bodySize === null)
+      if (!this._bodySize)
         throw new Error(
-          "this._bodySize is null, cannot add content length header."
+          "this._bodySize is undefined, cannot add content length header."
         );
 
       // Performs some logging.
@@ -538,7 +561,7 @@ export class HTTPResponse extends EventEmitter {
     if (shouldUseChunking) {
       // Creates the transform stream.
       const transform: Transform = new Transform({
-        final: (callback: (error: Error | null | undefined) => void) => {
+        final: (callback: (error?: Error | undefined) => void) => {
           // Performs some logging.
           this.session.shouldTrace(() =>
             this.session.trace(
@@ -553,7 +576,7 @@ export class HTTPResponse extends EventEmitter {
           this.endBody();
 
           // Finishes the stream.
-          callback(null);
+          callback();
         },
         transform: (
           buffer: Buffer,
@@ -575,7 +598,7 @@ export class HTTPResponse extends EventEmitter {
 
           // Calls the callback with the new data.
           callback(
-            null,
+            undefined,
             Buffer.concat([
               lengthLineBuffer,
               buffer,
@@ -595,12 +618,12 @@ export class HTTPResponse extends EventEmitter {
     } else {
       // Creates the transform stream.
       const transform: Transform = new Transform({
-        final: (callback: (error: Error | null | undefined) => void) => {
+        final: (callback: (error?: Error | null) => void) => {
           // Ends the body.
           this.endBody();
 
           // Finishes the stream.
-          callback(null);
+          callback();
         },
         transform: (
           buffer: Buffer,
@@ -608,7 +631,7 @@ export class HTTPResponse extends EventEmitter {
           callback: (error: Error | null | undefined, data: any) => void
         ) => {
           // Calls the callback with the new data.
-          callback(null, buffer);
+          callback(undefined, buffer);
         },
       });
 
@@ -870,7 +893,7 @@ export class HTTPResponse extends EventEmitter {
    */
   protected async _writeEnqueuedHeaders(): Promise<void> {
     // If no enqueued headers return.
-    if (this._enqueuedHeaders === null) return;
+    if (!this._enqueuedHeaders) return;
 
     // Performs some logging.
     this.session.shouldTrace(() =>
@@ -886,7 +909,7 @@ export class HTTPResponse extends EventEmitter {
       await this.header(key, value);
 
     // Clear the enqueued headers.
-    this._enqueuedHeaders = null;
+    this._enqueuedHeaders = undefined;
   }
 
   //////////////////////////////////////////////////
@@ -993,27 +1016,27 @@ export class HTTPResponse extends EventEmitter {
     status: number = 200
   ): Promise<void> {
     // Gets the view engine and view directory.
-    const engine: string | null =
-      this.session.server.settings.templating?.engine ?? null;
-    const views: string | null =
-      this.session.server.settings.templating?.views ?? null;
+    const engine: string | undefined =
+      this.session.server.settings.templating?.engine;
+    const views: string | undefined =
+      this.session.server.settings.templating?.views;
 
     // Makes sure there is a templating engine set.
-    if (engine === null)
+    if (!engine)
       throw new Error("Templating engine must be specified in the settings!");
 
     // @ts-ignore
-    const templatingFunction = consolidate[engine] ?? null;
+    const templatingFunction = consolidate[engine];
 
     // Makes sure the engine exists, if not, throw an error.
-    if (templatingFunction === null)
+    if (!templatingFunction)
       throw new Error(`Unknown templating engine: ${engine}`);
 
     // Gets the path of the template to render. If we're given an
     //  absolute path, use it, otherwise we'll use a path relative
     //  to the one specified in the settings.
     if (path.isAbsolute(template) === false) {
-      if (views === null)
+      if (!views)
         throw new Error(
           "Cannot use relative template path when views not specified in settings."
         );
@@ -1039,10 +1062,10 @@ export class HTTPResponse extends EventEmitter {
    */
   public async file(filePath: string, status: number = 200): Promise<void> {
     // Gets the range header from the request (for partial file contents);
-    const range: HTTPRangeHeader | null =
-      this.request.headers!.getSingleTypedHeader(
-        HTTPHeaderType.Range
-      ) as HTTPRangeHeader | null;
+    const range: HTTPRangeHeader | undefined =
+      this.request.headers!.getSingleTypedHeader(HTTPHeaderType.Range) as
+        | HTTPRangeHeader
+        | undefined;
 
     // Gets the file stats, we'll use this to check if the file exists, and get the size of the file.
     const stats: fs.Stats = await util.promisify(fs.stat)(filePath);

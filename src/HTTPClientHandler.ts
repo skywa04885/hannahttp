@@ -22,11 +22,13 @@ import {
   HTTPRequestEvent,
 } from "./HTTPRequest";
 import { HTTPResponse, HTTPResponseState } from "./HTTPResponse";
-import { HTTPRouter } from "./HTTPRouter";
 import { HTTPClientSocket } from "./HTTPClientSocket";
 import { HTTPSession } from "./HTTPSession";
 import { HTTPServer } from "./HTTPServer";
 import { HTTPMethod } from "./HTTPMethod";
+import { HTTPError, HTTPNetworkingError, HTTPSyntaxError, HTTPVersionNotSupportedError } from "./HTTPError";
+import { Writable } from "stream";
+import { HTTPConnectionPreference } from "./headers/HTTPConnectionHeader";
 
 export class HTTPClientHandler {
   protected _session: HTTPSession;
@@ -45,11 +47,145 @@ export class HTTPClientHandler {
     this._session = new HTTPSession(client, server);
     this._request = new HTTPRequest(this._session);
 
-    // Pipes all the received data to the request.
-    this.client.socket.pipe(this._request);
+    // Handles all the data, however keeps in mind that we may need to wait for events
+    //  hence piping it through a writable stream first.
+    this.client.socket.pipe(
+      new Writable({
+        write: async (
+          chunk: Buffer,
+          _: BufferEncoding,
+          callback: (error?: Error | null) => void
+        ): Promise<void> => {
+          // Handles the data.
+          await this._onData(chunk);
+
+          // Gets the next chunk of data.
+          callback();
+        },
+      })
+    );
+
+    // Handles socket errors.
+    this.client.socket.on("error", (error: Error) =>
+      this._handleError(new HTTPNetworkingError(error.message))
+    );
 
     // Handles the even where the request headers are loaded (enough to handle the request).
     this._request.on(HTTPRequestEvent.HeadersLoaded, () => this._onRequest());
+  }
+
+  /**
+   * Gets called when there's an error to handle.
+   * @param error the error to handle.
+   */
+  protected async _handleError(error: Error): Promise<void> {
+    // Checks the type of error, and how to handle it.
+    if (!(error instanceof HTTPError)) {
+      this._session.shouldError(() =>
+        this._session.error(
+          `Unknown error occured: "${error.message}", closing transmission channel ...`
+        )
+      );
+    } else if (error instanceof HTTPNetworkingError) {
+      this._session.shouldError(() =>
+        this._session.error(
+          `Networking error occured: "${error.message}", closing transmission channel ...`
+        )
+      );
+    } else if (error instanceof HTTPSyntaxError) {
+      // Creates the response.
+      const response: HTTPResponse = new HTTPResponse(
+        this._request,
+        this._session
+      );
+
+      // Sets the prefered (in this case forced) connection type to close.
+      response.setConnectionPreference(HTTPConnectionPreference.Close);
+
+      // Writes the error response.
+      await response.text(
+        `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bad Request</title>
+</head>
+<body>
+  <h1>Bad Request</h1>
+  <p>The received request was malformed and the request parser has thrown a syntax error, details bellow:</p>
+  <p>
+    <strong>
+      Source: 
+    </strong>
+    &quot;${error.source}&quot;
+    <br />
+    <strong>
+      Message: 
+    </strong>
+    &quot;${error.message}&quot;
+  </p>
+</body>
+</html>`,
+        400
+      );
+    } else if (error instanceof HTTPVersionNotSupportedError) {
+      // Creates the response.
+      const response: HTTPResponse = new HTTPResponse(
+        this._request,
+        this._session
+      );
+
+      // Sets the prefered (in this case forced) connection type to close.
+      response.setConnectionPreference(HTTPConnectionPreference.Close);
+
+      // Writes the error response.
+      await response.text(
+        `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HTTP Version Not Supported</title>
+</head>
+<body>
+  <h1>Bad Request</h1>
+  <p>The HTTP version that was used in the request is not supported by this server.</p>
+  <p>
+    <strong>
+      Version: 
+    </strong>
+    &quot;${error.message}&quot;
+  </p>
+</body>
+</html>`,
+        505
+      );
+    } else {
+      this._session.shouldError(() =>
+        this._session.error(
+          `General HTTP error occured: "${error.message}", closing transmission channel ...`
+        )
+      );
+    }
+
+    // Destroys the connection.
+    this._session.client.destroy();
+  }
+
+  /**
+   * Gets called when new data is available to be written.
+   * @param chunk the chunk of data that got available.
+   * @returns a promise that resolves once the data finished processing or error has been handled.
+   */
+  protected async _onData(chunk: Buffer): Promise<void> {
+    try {
+      this._request.write(chunk);
+    } catch (error) {
+      await this._handleError(error as Error);
+    }
   }
 
   /**
@@ -60,7 +196,7 @@ export class HTTPClientHandler {
     // Creates the response, this will be used to respond to the request.
     const response: HTTPResponse = new HTTPResponse(
       this._request,
-      this._session,
+      this._session
     );
 
     // Modifies the response so we'll exclude the body (only if we're dealing with HEAD).
@@ -76,8 +212,12 @@ export class HTTPClientHandler {
     // Waits for the request to be handled.
     await this.server.router.handle(this._request, response);
 
-    // Resets the request so we can receive the next one.
-    this._request.reset();
+    // Handles the next segment of the request.
+    try {
+      this._request.next();
+    } catch (error) {
+      await this._handleError(error as Error);
+    }
   }
 
   /**
