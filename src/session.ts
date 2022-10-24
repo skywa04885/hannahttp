@@ -1,5 +1,5 @@
 import { HTTPClientSocket } from "./client-socket";
-import { HTTPServer } from "./server";
+import { HTTPServer } from "./server/base";
 
 export enum HTTPSessionLogLevel {
   Trace = 0,

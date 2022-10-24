@@ -20,8 +20,15 @@ at the end of the matching path.
 1. consolidate
 ## Features
 
-1. Full-Blown HTTP Router with wildcards.
-1. Async API for everything.
+1. Full-Blown HTTP Router with pattern matching.
+1. Async API.
+1. Automatic LetsEncrypt certificates using CertBot.
+1. Virtual Hosting.
+1. Static File Serving.
+1. Customizable Full-Response Caching.
+1. Customizable Adaptive Compression.
+1. Body Parsers.
+
 ## Built-In Middleware
 
 The library contains many pieces of middleware that will supply the user (you)
@@ -126,8 +133,8 @@ router.any("/*", async (match, req, res) => {
 });
 
 // Creates the server and starts listening.
-const server = new HTTPServerPlain(router, settings);
-server.listen(8080, "0.0.0.0", 100);
+const server = new HTTPServerPlain(8080, "0.0.0.0", 100, router, settings);
+server.start();
 
 
 ```

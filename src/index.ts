@@ -1,4 +1,6 @@
-import { HTTPServer, HTTPServerPlain } from "./server";
+import { HTTPServerPlain } from "./server/plain";
+import { HTTPServer } from "./server/base";
+import { HTTPServerSecure, IHTTPServerSecureOptions } from "./server/secure";
 import { HTTPSettings } from "./settings";
 import { HTTPRequest } from "./http/request";
 import { HTTPResponse } from "./http/response";
@@ -6,7 +8,6 @@ import { HTTPSession, HTTPSessionLogLevel } from "./session";
 import { HTTPPathMatch } from "./router/path-match";
 import { HTTPPathMatcher } from "./router/path-matcher";
 import { HTTPClientSocket } from "./client-socket";
-import { HTTPServerSocket, HTTPServerSocketEvent } from "./server-socket";
 import { HTTPMethod } from "./http/method";
 import { HTTPRouter } from "./router/base";
 import { HTTPVersion } from "./http/version";
@@ -14,6 +15,7 @@ import { HTTPURI } from "./http/uri";
 import { HTTPClientHandler } from "./client-handler";
 import { HTTPHeaderType } from "./http/header";
 import { HTTPHeaders } from "./http/headers";
+import { Logger, LoggerLevel } from "./logger";
 import {
   HTTPMediaType,
   HTTPContentTypeHeader,
@@ -44,6 +46,11 @@ import {
   HTTPSimpleRouterMethod,
   httpSimpleRouterMethodFromHttpMethod,
 } from "./router/simple-router";
+import {
+  useLetsEncrypt,
+  IUseLetsEncryptOptions,
+  IUseLetsEncryptCertificate,
+} from "./middleware/letsencrypt";
 
 export {
   HTTPServer,
@@ -58,8 +65,6 @@ export {
   HTTPClientHandler,
   HTTPClientSocket,
   HTTPMethod,
-  HTTPServerSocket,
-  HTTPServerSocketEvent,
   HTTPRouter,
   HTTPVersion,
   HTTPURI,
@@ -74,6 +79,7 @@ export {
   useStatic,
   useCookies,
   useCache,
+  IHTTPServerSecureOptions,
   HTTPSimpleRouter,
   HTTPSimpleRouterCallback,
   HTTPSimpleRouterElement,
@@ -89,4 +95,10 @@ export {
   IUseVhostOptions,
   IUseCookiesBody,
   IUseCookiesOptions,
+  useLetsEncrypt,
+  IUseLetsEncryptOptions,
+  IUseLetsEncryptCertificate,
+  Logger,
+  HTTPServerSecure,
+  LoggerLevel,
 };

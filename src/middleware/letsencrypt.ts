@@ -3,6 +3,9 @@ import fs from "fs/promises";
 import { HTTPSimpleRouterCallback } from "../router/simple-router";
 import useStatic from "./static";
 import childProcess from "child_process";
+import { Logger } from "../logger";
+import { HTTPServerSecure } from "../server/secure";
+import { Scheduler } from "../misc/scheduler";
 
 interface ILetsEncryptCertificateConfig {
   name: string;
@@ -27,8 +30,18 @@ class LetsEncryptCertificateConfig {
     return this._renewalDate;
   }
 
+  public set renewalDate(date: Date | undefined) {
+    this._renewalDate = date;
+    this._modified = true;
+  }
+
   public get expireDate(): Date | undefined {
     return this._expireDate;
+  }
+
+  public set expireDate(date: Date | undefined) {
+    this._expireDate = date;
+    this._modified = true;
   }
 
   public get creationDate(): Date | undefined {
@@ -37,16 +50,6 @@ class LetsEncryptCertificateConfig {
 
   public set creationDate(date: Date | undefined) {
     this._creationDate = date;
-    this._modified = true;
-  }
-
-  public set expireDate(date: Date | undefined) {
-    this._expireDate = date;
-    this._modified = true;
-  }
-
-  public set renewalDate(date: Date | undefined) {
-    this._renewalDate = date;
     this._modified = true;
   }
 
@@ -106,6 +109,7 @@ export interface IUseLetsEncryptCertificate {
 }
 
 export interface IUseLetsEncryptOptions {
+  logger?: Logger;
   workingDirectory?: string;
   webrootDirectory?: string;
   certificates: IUseLetsEncryptCertificate[];
@@ -113,9 +117,11 @@ export interface IUseLetsEncryptOptions {
   certbotExecutable?: string;
   certbotLogDirectory?: string;
   certbotConfigDirectory?: string;
+  renewInterval?: number;
 }
 
 export const useLetsEncrypt = async (
+  secureServer: HTTPServerSecure,
   options: IUseLetsEncryptOptions
 ): Promise<[string, HTTPSimpleRouterCallback]> => {
   // Sets the default configurations.
@@ -127,6 +133,7 @@ export const useLetsEncrypt = async (
   );
   options.certbotLogDirectory ??= path.join(options.workingDirectory, "log");
   options.certbotExecutable ??= "certbot";
+  options.renewInterval ??= 1000 * 60 * 60 * 24 * 31;
 
   // Assigns the directories in the certificates.
   for (const certificate of options.certificates) {
@@ -138,15 +145,28 @@ export const useLetsEncrypt = async (
     certificate.configPath = path.join(certificate.directory, "config.json");
   }
 
+  // Creates the scheduler.
+  const scheduler: Scheduler = new Scheduler();
+
   /**
    * Requests a new certificate.
    * @param certificate the certificate to request.
    * @returns a promise that resolves once requested.
    */
-  const requestCertificate = (
+  const requestCertificate = async (
     certificate: IUseLetsEncryptCertificate
   ): Promise<void> => {
-    return new Promise((resolve, reject): void => {
+    // Logs.
+    options.logger?.shouldInfo(() =>
+      options.logger?.info(`Requesting certificate for "${certificate.name}"`)
+    );
+
+    // Creates the configuration.
+    const config: LetsEncryptCertificateConfig =
+      new LetsEncryptCertificateConfig(certificate.name);
+
+    // Waits for the certbot process to execute.
+    await new Promise<void>((resolve, reject): void => {
       // Executes the maintainance.
       childProcess.exec(
         [
@@ -163,13 +183,13 @@ export const useLetsEncrypt = async (
           `--cert-name=${certificate.name}`,
           `--domains=${certificate.domains.join(",")}`,
           "--non-interactive",
+          "--quiet",
         ].join(" "),
         (
           error: childProcess.ExecException | null,
           stdout: string,
           stderr: string
         ) => {
-          console.log(stdout);
           // If there is an error, reject.
           if (error) reject(new Error(error.message));
 
@@ -180,12 +200,45 @@ export const useLetsEncrypt = async (
         }
       );
     });
+
+    // Restarts the secure server.
+    await secureServer.restart();
+
+    // Updates the configuration.
+    config.creationDate = new Date();
+    config.renewalDate = new Date();
+    config.expireDate = new Date(Date.now() + options.renewInterval!);
+
+    // Saves the configuration.
+    await config.save(certificate.configPath!);
+
+    // Schedules the maintainance task.
+    scheduler.schedule(config.expireDate.getTime(), () =>
+      requestCertificate(certificate)
+    );
+
+    // Logs.
+    options.logger?.shouldInfo(() =>
+      options.logger?.info(
+        `Scheduled certificate renewal at: ${config.expireDate?.toLocaleDateString()}`
+      )
+    );
   };
 
-  const renewCertificate = (
+  const renewCertificate = async (
     certificate: IUseLetsEncryptCertificate
   ): Promise<void> => {
-    return new Promise((resolve, reject): void => {
+    // Logs.
+    options.logger?.shouldInfo(() =>
+      options.logger?.info(`Renewing certificate "${certificate.name}"`)
+    );
+
+    // Loads the configuration.
+    const config: LetsEncryptCertificateConfig =
+      await LetsEncryptCertificateConfig.load(certificate.configPath!);
+
+    // Waits for the certbot process to execute.
+    await new Promise<void>((resolve, reject): void => {
       // Executes the renewal.
       childProcess.exec(
         [
@@ -197,13 +250,14 @@ export const useLetsEncrypt = async (
           `--email=${options.email}`,
           `--agree-tos`,
           `--cert-name=${certificate.name}`,
+          "--force-renew",
+          "--quiet",
         ].join(" "),
         (
           error: childProcess.ExecException | null,
           stdout: string,
           stderr: string
         ) => {
-          console.log(stdout);
           // If there is an error, reject.
           if (error) reject(new Error(error.message));
 
@@ -214,51 +268,27 @@ export const useLetsEncrypt = async (
         }
       );
     });
-  };
 
-  /**
-   * Maintains the given certificate.
-   * @param certificate the certificate to maintain.
-   * @returns a promise that resolves once maintained.
-   */
-  const maintainCertificate = async (
-    certificate: IUseLetsEncryptCertificate
-  ): Promise<void> => {
-    // Gets the directories to work with.
+    // Restarts the secure server.
+    await secureServer.restart();
 
-    // Checks if the config file exists, if so read it.
-    let config: LetsEncryptCertificateConfig;
-    try {
-      config = await LetsEncryptCertificateConfig.load(certificate.configPath!);
-    } catch (_) {
-      config = new LetsEncryptCertificateConfig(certificate.name);
-    }
+    // Sets the renewal and expire date.
+    config.renewalDate = new Date();
+    config.expireDate = new Date(Date.now() + options.renewInterval!);
 
-    if (!config.renewalDate) {
-      // Request new certificate.
-      await requestCertificate(certificate);
-
-      // Sets the creation date to indicate the certificate has been created.
-      config.creationDate = new Date();
-
-      // Sets the renewal date and the expire date.
-      //  the expire date is set to the next month to ensure
-      //  proper renewal, even though, the certificate lasts 90 days.
-      config.renewalDate = new Date();
-      config.expireDate = new Date(Date.now() + 1000 * 60 * 60 * 24 * 31);
-    } else if (config.expireDate!.getTime() < Date.now()) {
-      // Renew existing certificate.
-      await renewCertificate(certificate);
-
-      // Sets the renewal date and the expire date.
-      //  the expire date is set to the next month to ensure
-      //  proper renewal, even though, the certificate lasts 90 days.
-      config.renewalDate = new Date();
-      config.expireDate = new Date(Date.now() + 1000 * 60 * 60 * 24 * 31);
-    }
-
-    // Saves the config.
+    // Saves the configuration.
     await config.save(certificate.configPath!);
+    // Schedules the maintainance task.
+    scheduler.schedule(config.expireDate.getTime(), () =>
+      requestCertificate(certificate)
+    );
+
+    // Logs.
+    options.logger?.shouldInfo(() =>
+      options.logger?.info(
+        `Scheduled certificate renewal at: ${config.expireDate?.toLocaleDateString()}`
+      )
+    );
   };
 
   const initializeDirs = async (): Promise<void> => {
@@ -287,13 +317,54 @@ export const useLetsEncrypt = async (
   };
 
   // Initializes all the directories (does this first since other things might need it).
+  options.logger?.shouldTrace(() =>
+    options.logger?.trace(`Initializing all required directories.`)
+  );
   await initializeDirs();
+  options.logger?.shouldTrace(() =>
+    options.logger?.trace(`Initialized all directores.`)
+  );
 
-  // Maintains all the certificates (however does this without blocking the rest of the application).
-  (async (): Promise<void> => {
-    for (const certificate of options.certificates)
-      await maintainCertificate(certificate);
-  })();
+  // Schedules tasks for the certificates.
+  for (const certificate of options.certificates) {
+    try {
+      // Loads the configuration and makes sure that the
+      // expire date has been specified.
+      const config: LetsEncryptCertificateConfig =
+        await LetsEncryptCertificateConfig.load(certificate.configPath!);
+      if (!config.expireDate)
+        throw new Error(`Expire date not found inside existing config!`);
+
+      // Schedules the renewal of the certificate.
+      scheduler.schedule(config.expireDate.getTime(), () =>
+        renewCertificate(certificate)
+      );
+
+      // Logs.
+      options.logger?.shouldInfo(() =>
+        options.logger?.info(
+          `Scheduled certificate renewal at: ${config.expireDate?.toLocaleDateString()}`
+        )
+      );
+    } catch (_) {
+      // The time to request the certificate.
+      const time: number = Date.now() + 1000;
+
+      // Since no configuration could be found, we assume
+      //  that we need to request the certificate, so schedule
+      //  a certificate request.
+      scheduler.schedule(time, () => requestCertificate(certificate));
+
+      // Logs.
+      options.logger?.shouldInfo(() =>
+        options.logger?.info(
+          `Scheduled certificate request at: ${new Date(
+            time
+          ).toLocaleDateString()}`
+        )
+      );
+    }
+  }
 
   // Returns the callback.
   return [

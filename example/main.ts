@@ -6,19 +6,42 @@ import {
   HTTPSettings,
   HTTPSimpleRouter,
 } from "../src/index";
+import { Logger, LoggerLevel } from "../src/logger";
 import { useLetsEncrypt } from "../src/middleware/letsencrypt";
+import { HTTPServerSecure } from "../src/server/secure";
+import { Scheduler } from "../src/misc/scheduler";
 
 (async () => {
   const router = new HTTPSimpleRouter();
   const settings = new HTTPSettings();
 
+  const plainServer = new HTTPServerPlain(
+    8080,
+    "0.0.0.0",
+    100,
+    router,
+    settings
+  );
+  const secureServer = new HTTPServerSecure(
+    {
+      key: "./env/letsencrypt/config/live/test-eu001.fannst.nl/privkey.pem",
+      cert: "./env/letsencrypt/config/live/test-eu001.fannst.nl/cert.pem",
+    },
+    8030,
+    "0.0.0.0",
+    100,
+    router,
+    settings
+  );
+
   router.get(
-    ...(await useLetsEncrypt({
+    ...(await useLetsEncrypt(secureServer, {
+      logger: new Logger("LetsEncrypt", LoggerLevel.Trace),
       email: "luke.rieff@gmail.com",
       certificates: [
         {
-          name: "fannst.nl",
-          domains: ["hannahttp.fannst.nl"],
+          name: "test-eu001.fannst.nl",
+          domains: ["test-eu001.fannst.nl"],
           rsaPrivateKeys: ["web.pem"],
         },
       ],
@@ -34,6 +57,6 @@ import { useLetsEncrypt } from "../src/middleware/letsencrypt";
     }
   );
 
-  const server = new HTTPServerPlain(router, settings);
-  server.listen(8080, "0.0.0.0", 100);
+  await plainServer.start();
+  await secureServer.start();
 })();

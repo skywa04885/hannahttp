@@ -20,7 +20,6 @@ import { HTTPRequest, HTTPRequestEvent } from "./http/request";
 import { HTTPResponse } from "./http/response";
 import { HTTPClientSocket } from "./client-socket";
 import { HTTPSession } from "./session";
-import { HTTPServer } from "./server";
 import { HTTPMethod } from "./http/method";
 import {
   HTTPError,
@@ -30,6 +29,7 @@ import {
 } from "./error";
 import { Writable } from "stream";
 import { HTTPConnectionPreference } from "./http/headers/connection";
+import { HTTPServer } from "./server/base";
 
 export class HTTPClientHandler {
   protected _session: HTTPSession;
